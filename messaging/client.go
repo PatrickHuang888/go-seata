@@ -1,8 +1,9 @@
-package rpc
+package messaging
 
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"google.golang.org/protobuf/proto"
 	"io"
 	"net"
@@ -39,6 +40,9 @@ import (
 
 const (
 	MSGTYPE_RESQUEST_SYNC = byte(0)
+	FixedHeadLength= 16
+	StartLength= 7
+	SerializerProtoBuf=2
 )
 
 var (
@@ -48,7 +52,7 @@ var (
 	requestId = uint32(0)
 )
 
-func nextRequestId() uint32{
+func nextRequestId() uint32 {
 	atomic.AddUint32(&requestId, 1)
 	return requestId
 }
@@ -65,7 +69,7 @@ func NewClient(svrAddr string) (*Client, error) {
 	return &Client{conn: conn}, nil
 }
 
-func (c *Client) sendRegMsg(msg *pb.RegisterTMRequestProto) (*pb.RegisterTMResponseProto, error) {
+func (c *Client) SendTmRegMsg(msg *pb.RegisterTMRequestProto) (*pb.RegisterTMResponseProto, error) {
 
 	buffer := new(bytes.Buffer)
 
@@ -89,11 +93,15 @@ func (c *Client) sendRegMsg(msg *pb.RegisterTMRequestProto) (*pb.RegisterTMRespo
 	buffer.Write(buf)
 
 	// optional headmap
-	var headLength uint16
-	h := make([]byte, 2)
-	binary.BigEndian.PutUint16(h, headLength)
+	var headMapLength uint16
 
 	// body
+	className:= "io.seata.protocol.protobuf.RegisterTMRequestProto"
+	classNameLength:= uint32(len(className))
+	binary.BigEndian.PutUint32(buf, classNameLength)
+	buffer.Write(buf)
+	buffer.Write([]byte(className))
+
 	body, err := proto.Marshal(msg)
 	if err != nil {
 		return nil, errors.WithStack(err)
@@ -102,17 +110,25 @@ func (c *Client) sendRegMsg(msg *pb.RegisterTMRequestProto) (*pb.RegisterTMRespo
 
 	bs := buffer.Bytes()
 
+	headLength := 16 + headMapLength
+	binary.BigEndian.PutUint16(bs[7:9], headLength)
+
 	var fullLength uint32
-	fullLength = uint32(headLength) + uint32(len(body))
+	fullLength = uint32(headLength) + 4+ classNameLength+ uint32(len(body))
 	binary.BigEndian.PutUint32(bs[3:7], fullLength)
 
-	if _, err := c.conn.Write(bs); err != nil {
-		return nil, errors.WithStack(err)
+	n := 0
+	for n < len(bs) {
+		nt, err := c.conn.Write(bs)
+		if err != nil {
+			return nil, errors.WithStack(err)
+		}
+		n += nt
 	}
+	fmt.Printf("rm registry msg written\n")
 
-	// =======read==========
+	// =======read response ==========
 	buf = make([]byte, 7)
-	//
 	if _, err := io.ReadFull(c.conn, buf); err != nil {
 		return nil, errors.Wrap(err, "read message start err")
 	}
@@ -134,16 +150,40 @@ func (c *Client) sendRegMsg(msg *pb.RegisterTMRequestProto) (*pb.RegisterTMRespo
 	}
 	fullLength = binary.BigEndian.Uint32(buf[3:])
 
-	buf = make([]byte, fullLength-4)
-	if _, err = io.ReadFull(c.conn, buf); err != nil {
+	buf = make([]byte, fullLength-StartLength)
+	buffer= bytes.NewBuffer(buf)
+	buffer.Reset()
+	if _, err :=io.CopyN(buffer, c.conn, int64(len(buf))); err != nil {
 		return nil, errors.WithStack(err)
 	}
+	buffer.Read(buf[:2])
 	headLength = binary.BigEndian.Uint16(buf[:2])
-	// skip headmap
+	// skip headmap now
+
+	// message type
+	buffer.ReadByte()
+
+	serializer, _ := buffer.ReadByte()
+	if serializer!=SerializerProtoBuf {
+		return nil, errors.New("serializer only support protobuf")
+	}
+
+	// compressor
+	buffer.ReadByte()
+
+	// request id
+	buffer.Read(buf[:4])
+	requestId= binary.BigEndian.Uint32(buf[:4])
+
+	// className
+	buffer.Read(buf[:4])
+	classNameLength= binary.BigEndian.Uint32(buf)
+	buffer.Read(make([]byte, classNameLength))
 
 	rsp := &pb.RegisterTMResponseProto{}
-	if err = proto.Unmarshal(buf[1+headLength:], rsp); err != nil {
+	if err = proto.Unmarshal(buffer.Bytes(), rsp); err != nil {
 		return nil, errors.WithStack(err)
 	}
 	return rsp, nil
 }
+
