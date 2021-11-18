@@ -21,8 +21,6 @@ type Client struct {
 
 	closing chan struct{}
 
-	//ops map[uint32]*operation
-
 	pendings map[uint32]*operation
 
 	readOp chan *readMsg
@@ -175,29 +173,4 @@ func (c *Client) Close() {
 	select {
 	case c.closing <- struct{}{}:
 	}
-}
-
-func (c *Client) TmReg() error {
-
-	msg := v1.NewTmRegRequest("go-client", "go-client-txgroup")
-
-	ctx := context.Background()
-
-	fmt.Println("call ")
-	rsp, err := c.Call(ctx, msg)
-	if err != nil {
-		return errors.WithStack(err)
-	}
-
-	fmt.Println("after call")
-
-	tmRegRsp, ok := rsp.(*pb.RegisterTMResponseProto)
-	if !ok {
-		return errors.New("not tm reg response")
-	}
-	if tmRegRsp.AbstractIdentifyResponse.AbstractResultMessage.GetResultCode() != pb.ResultCodeProto_Success {
-		return errors.New("response fail")
-	}
-
-	return nil
 }

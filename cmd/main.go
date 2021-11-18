@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/PatrickHuang888/go-seata/messaging"
+	 "github.com/PatrickHuang888/go-seata/tm"
 )
 
 func main() {
@@ -10,7 +11,9 @@ func main() {
 	if err!=nil {
 		fmt.Printf("%+v", err)
 	}
-	err =c.TmReg()
+
+	txmgr := tm.NewTm(c)
+	err =txmgr.Register()
 	if err!=nil {
 		fmt.Printf(" tm reg error %+v", err)
 	}
