@@ -1,64 +1,40 @@
 package messaging
 
 import (
-	"bytes"
-	"encoding/binary"
+	"context"
 	"fmt"
-	"google.golang.org/protobuf/proto"
-	"io"
-	"net"
-	"sync/atomic"
-
+	"github.com/PatrickHuang888/go-seata/logging"
+	v1 "github.com/PatrickHuang888/go-seata/messaging/v1"
 	"github.com/pkg/errors"
+	"google.golang.org/protobuf/proto"
+	"net"
 
 	"github.com/PatrickHuang888/go-seata/protocol/pb"
 )
 
-/**
- * <pre>
- * 0     1     2     3     4     5     6     7     8     9    10     11    12    13    14    15    16
- * +-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+-----+
- * |   magic   |Proto|     Full length       |    Head   | Msg |Seria|Compr|     RequestId         |
- * |   code    |colVer|    (head+body)      |   Length  |Type |lizer|ess  |                       |
- * +-----------+-----------+-----------+-----------+-----------+-----------+-----------+-----------+
- * |                                                                                               |
- * |                                   Head Map [Optional]                                         |
- * +-----------+-----------+-----------+-----------+-----------+-----------+-----------+-----------+
- * |                                                                                               |
- * |                                         body                                                  |
- * |                                                                                               |
- * |                                        ... ...                                                |
- * +-----------------------------------------------------------------------------------------------+
- * </pre>
- * <p>
- * <li>Full Length: include all data </li>
- * <li>Head Length: include head data from magic code to head map. </li>
- * <li>Body Length: Full Length - Head Length</li>
- * </p>
- * https://github.com/seata/seata/issues/893
- **/
-
-const (
-	MSGTYPE_RESQUEST_SYNC = byte(0)
-	FixedHeadLength= 16
-	StartLength= 7
-	SerializerProtoBuf=2
-)
-
 var (
-	MagicCodeBytes = []byte{0xda, 0xda}
-	Version        = byte(1)
-
-	requestId = uint32(0)
+	ErrClientQuit = errors.New("client is closed")
 )
-
-func nextRequestId() uint32 {
-	atomic.AddUint32(&requestId, 1)
-	return requestId
-}
 
 type Client struct {
 	conn net.Conn
+
+	closing chan struct{}
+
+	//ops map[uint32]*operation
+
+	pendings map[uint32]*operation
+
+	readOp chan *readMsg
+
+	sending chan *operation
+	sent    chan *operation
+}
+
+type readMsg struct {
+	id  uint32
+	msg proto.Message
+	err error
 }
 
 func NewClient(svrAddr string) (*Client, error) {
@@ -66,124 +42,162 @@ func NewClient(svrAddr string) (*Client, error) {
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
-	return &Client{conn: conn}, nil
+	c := &Client{conn: conn, closing: make(chan struct{}), pendings: make(map[uint32]*operation), readOp: make(chan *readMsg),
+		sending: make(chan *operation), sent: make(chan *operation)}
+	go c.run()
+	return c, nil
 }
 
-func (c *Client) SendTmRegMsg(msg *pb.RegisterTMRequestProto) (*pb.RegisterTMResponseProto, error) {
+func (c *Client) run() {
 
-	buffer := new(bytes.Buffer)
+	go c.read()
 
-	buffer.Write(MagicCodeBytes)
-	buffer.WriteByte(Version)
+	for {
+		select {
+		case <-c.closing:
+			if err := c.conn.Close(); err != nil {
+				logging.Warningf("closing error", err)
+			}
+			return
 
-	// full length 4 bytes
-	buffer.Write(make([]byte, 4))
-	// head length 2 bytes
-	buffer.Write(make([]byte, 2))
+		case read := <-c.readOp:
+			pending := c.pendings[read.id]
+			if pending == nil {
+				logging.Warningf("read message req id %d not found!", read.id)
+			}
+			delete(c.pendings, read.id)
+			pending.rsp <- read.msg
+			pending.err = read.err
+			if read.err != nil {
+				logging.Errorf("read error closing")
+				c.closing <- struct{}{}
+			}
 
-	// message type
-	buffer.WriteByte(MSGTYPE_RESQUEST_SYNC)
-	// codec protobuf
-	buffer.WriteByte(0x2)
-	// compressor none
-	buffer.WriteByte(0)
-	// request id 4 bytes
-	buf := make([]byte, 4)
-	binary.BigEndian.PutUint32(buf, nextRequestId())
-	buffer.Write(buf)
+		case sent := <-c.sent:
+			if sent.err != nil {
+				delete(c.pendings, sent.id)
+			}
 
-	// optional headmap
-	var headMapLength uint16
+		case sending := <-c.sending:
+			c.pendings[sending.id] = sending
+		}
+	}
 
-	// body
-	className:= "io.seata.protocol.protobuf.RegisterTMRequestProto"
-	classNameLength:= uint32(len(className))
-	binary.BigEndian.PutUint32(buf, classNameLength)
-	buffer.Write(buf)
-	buffer.Write([]byte(className))
+}
 
-	body, err := proto.Marshal(msg)
+func (c *Client) read() {
+	for {
+
+		fmt.Printf("read ...\n")
+
+		reqId, msg, err := v1.ReadMessage(c.conn)
+
+		fmt.Printf("after read msg\n")
+
+		read := &readMsg{id: reqId, msg: msg, err: err}
+		c.readOp <- read
+		if err != nil {
+			logging.Warning("read error, exit read")
+			break
+		}
+	}
+}
+
+type operation struct {
+	id  uint32
+	rsp chan proto.Message
+	err error
+}
+
+func (op *operation) wait(ctx context.Context) (rsp proto.Message, err error) {
+	fmt.Printf("waiting on id %d\n", op.id)
+
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case rsp := <-op.rsp:
+		return rsp, op.err
+	}
+}
+
+func (c *Client) Call(ctx context.Context, req proto.Message) (rsp proto.Message, err error) {
+	id, bs, err := v1.EncodeMessage(v1.MSGTYPE_RESQUEST_SYNC, pb.MessageTypeProto_TYPE_REG_CLT, req)
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
-	buffer.Write(body)
 
-	bs := buffer.Bytes()
+	op := &operation{id: id, rsp: make(chan proto.Message)}
 
-	headLength := 16 + headMapLength
-	binary.BigEndian.PutUint16(bs[7:9], headLength)
+	fmt.Printf("send \n")
 
-	var fullLength uint32
-	fullLength = uint32(headLength) + 4+ classNameLength+ uint32(len(body))
-	binary.BigEndian.PutUint32(bs[3:7], fullLength)
+	select {
+	case c.sending <- op:
+		err = c.write(bs, false)
+		op.err = err
+		c.sent <- op
+		if err != nil {
+			return
+		}
+
+	case <-ctx.Done():
+		err = ctx.Err()
+		return
+	}
+
+	rsp, err = op.wait(ctx)
+	return
+}
+
+/*func (c *Client) OnewayMessage(ctx context.Context, msg proto.Message) error {
+	id := nextRequestId()
+	op := &operation{id: id, req: msg}
+
+	return c.send(ctx, op)
+}*/
+
+func (c *Client) write(data []byte, retry bool) error {
+	fmt.Printf("write....\n")
 
 	n := 0
-	for n < len(bs) {
-		nt, err := c.conn.Write(bs)
+	for n < len(data) {
+		nt, err := c.conn.Write(data)
 		if err != nil {
-			return nil, errors.WithStack(err)
+			return errors.WithStack(err)
 		}
 		n += nt
 	}
-	fmt.Printf("rm registry msg written\n")
 
-	// =======read response ==========
-	buf = make([]byte, 7)
-	if _, err := io.ReadFull(c.conn, buf); err != nil {
-		return nil, errors.Wrap(err, "read message start err")
-	}
-
-	// magic code
-	b, err := buffer.ReadByte()
-	if err != nil {
-		return nil, errors.WithStack(err)
-	}
-	if b != MagicCodeBytes[0] {
-		return nil, errors.New("magic code error")
-	}
-	b, err = buffer.ReadByte()
-	if err != nil {
-		return nil, errors.WithStack(err)
-	}
-	if b != MagicCodeBytes[1] {
-		return nil, errors.New("magic code error")
-	}
-	fullLength = binary.BigEndian.Uint32(buf[3:])
-
-	buf = make([]byte, fullLength-StartLength)
-	buffer= bytes.NewBuffer(buf)
-	buffer.Reset()
-	if _, err :=io.CopyN(buffer, c.conn, int64(len(buf))); err != nil {
-		return nil, errors.WithStack(err)
-	}
-	buffer.Read(buf[:2])
-	headLength = binary.BigEndian.Uint16(buf[:2])
-	// skip headmap now
-
-	// message type
-	buffer.ReadByte()
-
-	serializer, _ := buffer.ReadByte()
-	if serializer!=SerializerProtoBuf {
-		return nil, errors.New("serializer only support protobuf")
-	}
-
-	// compressor
-	buffer.ReadByte()
-
-	// request id
-	buffer.Read(buf[:4])
-	requestId= binary.BigEndian.Uint32(buf[:4])
-
-	// className
-	buffer.Read(buf[:4])
-	classNameLength= binary.BigEndian.Uint32(buf)
-	buffer.Read(make([]byte, classNameLength))
-
-	rsp := &pb.RegisterTMResponseProto{}
-	if err = proto.Unmarshal(buffer.Bytes(), rsp); err != nil {
-		return nil, errors.WithStack(err)
-	}
-	return rsp, nil
+	fmt.Printf("write finished\n")
+	return nil
 }
 
+func (c *Client) Close() {
+	select {
+	case c.closing <- struct{}{}:
+	}
+}
+
+func (c *Client) TmReg() error {
+
+	msg := v1.NewTmRegRequest("go-client", "go-client-txgroup")
+
+	ctx := context.Background()
+
+	fmt.Println("call ")
+	rsp, err := c.Call(ctx, msg)
+	if err != nil {
+		return errors.WithStack(err)
+	}
+
+	fmt.Println("after call")
+
+	tmRegRsp, ok := rsp.(*pb.RegisterTMResponseProto)
+	if !ok {
+		return errors.New("not tm reg response")
+	}
+	if tmRegRsp.AbstractIdentifyResponse.AbstractResultMessage.GetResultCode() != pb.ResultCodeProto_Success {
+		return errors.New("response fail")
+	}
+
+	return nil
+}

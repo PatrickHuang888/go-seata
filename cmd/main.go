@@ -6,15 +6,12 @@ import (
 )
 
 func main() {
-	client, err := messaging.NewClient("localhost:8091")
+	c, err := messaging.NewClient("localhost:8091")
 	if err!=nil {
 		fmt.Printf("%+v", err)
 	}
-	msg := messaging.NewTmRegRequest("go-client", "tx-group")
-
-	_, err=client.SendTmRegMsg(msg)
+	err =c.TmReg()
 	if err!=nil {
-		fmt.Printf("%+v", err)
+		fmt.Printf(" tm reg error %+v", err)
 	}
-
 }
