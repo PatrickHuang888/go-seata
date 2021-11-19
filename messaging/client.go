@@ -93,7 +93,7 @@ func (c *Client) read() {
 		read := &readMsg{id: reqId, msg: msg, err: err}
 		c.readOp <- read
 		if err != nil {
-			logging.Warning("read error, exit read")
+			logging.Warningf("read error %+v, exit read", err)
 			break
 		}
 	}
@@ -124,7 +124,7 @@ func (c *Client) SyncCall(req proto.Message) (rsp proto.Message, err error) {
 func (c *Client) Call(ctx context.Context, req proto.Message) (rsp proto.Message, err error) {
 	id, bs, err := v1.EncodeMessage(v1.MSGTYPE_RESQUEST_SYNC, req)
 	if err != nil {
-		return nil, errors.WithStack(err)
+		return
 	}
 
 	op := &operation{id: id, rsp: make(chan proto.Message)}
@@ -149,12 +149,24 @@ func (c *Client) Call(ctx context.Context, req proto.Message) (rsp proto.Message
 	return
 }
 
-/*func (c *Client) OnewayMessage(ctx context.Context, msg proto.Message) error {
-	id := nextRequestId()
-	op := &operation{id: id, req: msg}
+func (c *Client) AsyncCall(msg proto.Message) error {
+	ctx := context.Background()
+	return c.SendOneway(ctx, msg)
+}
 
-	return c.send(ctx, op)
-}*/
+func (c *Client) SendOneway(ctx context.Context, msg proto.Message) error {
+	_, bs, err := v1.EncodeMessage(v1.MSGTYPE_RESQUEST_ONEWAY, msg)
+	if err != nil {
+		return err
+	}
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return c.write(bs, false)
+	}
+}
 
 func (c *Client) write(data []byte, retry bool) error {
 	fmt.Printf("write....\n")

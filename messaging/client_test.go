@@ -14,7 +14,7 @@ func TestCallToJava(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := v1.NewTmRegRequest("req-test", "tx-group-test")
+	req := v1.NewTmRegRequest("tm-test", "tx-group-test")
 	rsp, err := c.SyncCall(req)
 	if err != nil {
 		t.Fatal(err)
@@ -23,6 +23,13 @@ func TestCallToJava(t *testing.T) {
 	if !ok {
 		t.Errorf("response not tm register request")
 	}
+
+	msg := v1.NewRmRegMessage("rm-test", "tx-group-test", "resourceIds")
+	if err =c.AsyncCall(msg);err!=nil {
+		t.Fatalf("%+v", err)
+	}
+
+	c.Close()
 }
 
 // should start io.seata.core.rpc.netty.v1.ProtocolV1Server first
@@ -53,4 +60,5 @@ func TestCallToJavaConcurrently(t *testing.T) {
 	}
 
 	wg.Wait()
+	c.Close()
 }

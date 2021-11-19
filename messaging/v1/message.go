@@ -37,13 +37,16 @@ import (
  */
 
 const (
-	SerializerProtoBuf          = 2
-	TmRegisterRequestClassName  = "io.seata.protocol.protobuf.RegisterTMRequestProto"
-	TmRegisterResponseClassName = "io.seata.protocol.protobuf.RegisterTMResponseProto"
+	SerializerProtoBuf         = 2
+	TypeNameTmRegisterRequest  = "io.seata.protocol.protobuf.RegisterTMRequestProto"
+	TypeNameTmRegisterResponse = "io.seata.protocol.protobuf.RegisterTMResponseProto"
+	TypeNameRmRegisterRequest  = "io.seata.protocol.protobuf.RegisterRMRequestProto"
 
 	StartLength = 16
 
-	MSGTYPE_RESQUEST_SYNC = RequestType(0)
+	MSGTYPE_RESQUEST_SYNC     = MessageType(0)
+	MSGTYPE_RESQUEST_ONEWAY   = MessageType(2)
+	MSGTYPE_HEARTBEAT_REQUEST = MessageType(3)
 )
 
 var (
@@ -51,17 +54,24 @@ var (
 
 	MagicCodeBytes = []byte{0xda, 0xda}
 	Version        = byte(1)
+	SeataVersion   = "1.4.2"
 )
 
-type RequestType byte
+type MessageType byte
+
+func NewRmRegMessage(appId string, txGroup string, resourceIds string) *pb.RegisterRMRequestProto {
+	return &pb.RegisterRMRequestProto{ResourceIds: resourceIds, AbstractIdentifyRequest: &pb.AbstractIdentifyRequestProto{
+		AbstractMessage: &pb.AbstractMessageProto{MessageType: pb.MessageTypeProto_TYPE_REG_RM},
+		Version:         SeataVersion, ApplicationId: appId, TransactionServiceGroup: txGroup}}
+}
 
 func NewTmRegRequest(appId string, txGroup string) *pb.RegisterTMRequestProto {
 	return &pb.RegisterTMRequestProto{AbstractIdentifyRequest: &pb.AbstractIdentifyRequestProto{
 		AbstractMessage: &pb.AbstractMessageProto{MessageType: pb.MessageTypeProto_TYPE_REG_CLT},
-		Version:         "1.4.2", ApplicationId: appId, TransactionServiceGroup: txGroup}}
+		Version:         SeataVersion, ApplicationId: appId, TransactionServiceGroup: txGroup}}
 }
 
-func EncodeMessage(reqType RequestType, msg proto.Message) (uint32, []byte, error) {
+func EncodeMessage(msgType MessageType, msg proto.Message) (uint32, []byte, error) {
 	buffer := new(bytes.Buffer)
 
 	buffer.Write(MagicCodeBytes)
@@ -73,7 +83,7 @@ func EncodeMessage(reqType RequestType, msg proto.Message) (uint32, []byte, erro
 	buffer.Write(make([]byte, 2))
 
 	// message type
-	buffer.WriteByte(byte(reqType))
+	buffer.WriteByte(byte(msgType))
 
 	// codec protobuf
 	buffer.WriteByte(0x2)
@@ -84,7 +94,7 @@ func EncodeMessage(reqType RequestType, msg proto.Message) (uint32, []byte, erro
 
 	// request id 4 bytes
 	buf := make([]byte, 4)
-	reqId:= nextRequestId()
+	reqId := nextRequestId()
 	binary.BigEndian.PutUint32(buf, reqId)
 	buffer.Write(buf)
 
@@ -92,18 +102,19 @@ func EncodeMessage(reqType RequestType, msg proto.Message) (uint32, []byte, erro
 	// todo:
 	var headMapLength uint16
 
-	var className string
+	var typeName string
 	switch msg.(type) {
 	case *pb.RegisterTMRequestProto:
-		// body
-		className = TmRegisterRequestClassName
+		typeName = TypeNameTmRegisterRequest
+	case *pb.RegisterRMRequestProto:
+		typeName = TypeNameRmRegisterRequest
 	default:
 		return 0, nil, errors.New("message type unknown")
 	}
-	classNameLength := uint32(len(className))
-	binary.BigEndian.PutUint32(buf, classNameLength)
+	typeNameLength := uint32(len(typeName))
+	binary.BigEndian.PutUint32(buf, typeNameLength)
 	buffer.Write(buf)
-	buffer.Write([]byte(className))
+	buffer.Write([]byte(typeName))
 
 	body, err := proto.Marshal(msg)
 	if err != nil {
@@ -116,7 +127,7 @@ func EncodeMessage(reqType RequestType, msg proto.Message) (uint32, []byte, erro
 	headLength := StartLength + headMapLength
 	binary.BigEndian.PutUint16(bs[7:9], headLength)
 
-	fullLength := uint32(headLength) + 4 + classNameLength + uint32(len(body))
+	fullLength := uint32(headLength) + 4 + typeNameLength + uint32(len(body))
 	binary.BigEndian.PutUint32(bs[3:7], fullLength)
 
 	return reqId, bs, nil
@@ -125,20 +136,19 @@ func EncodeMessage(reqType RequestType, msg proto.Message) (uint32, []byte, erro
 func Decode(buffer *bytes.Buffer) (msg proto.Message, err error) {
 	buf := make([]byte, 4)
 
-	// className
 	buffer.Read(buf[:4])
-	classNameLength := binary.BigEndian.Uint32(buf)
-	className := make([]byte, classNameLength)
-	buffer.Read(className)
+	typeNameLength := binary.BigEndian.Uint32(buf)
+	typeName := make([]byte, typeNameLength)
+	buffer.Read(typeName)
 
-	switch string(className) {
-	case TmRegisterResponseClassName:
+	switch string(typeName) {
+	case TypeNameTmRegisterResponse:
 		msg = &pb.RegisterTMResponseProto{}
-	case TmRegisterRequestClassName:
+	case TypeNameTmRegisterRequest:
 		msg = &pb.RegisterTMRequestProto{}
 
 	default:
-		err = errors.New("response class name unknown")
+		err = errors.New("response type name unknown")
 		return
 	}
 
