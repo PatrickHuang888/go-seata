@@ -61,7 +61,7 @@ func NewTmRegRequest(appId string, txGroup string) *pb.RegisterTMRequestProto {
 		Version:         "1.4.2", ApplicationId: appId, TransactionServiceGroup: txGroup}}
 }
 
-func EncodeMessage(reqType RequestType, messageType pb.MessageTypeProto, msg proto.Message) (uint32, []byte, error) {
+func EncodeMessage(reqType RequestType, msg proto.Message) (uint32, []byte, error) {
 	buffer := new(bytes.Buffer)
 
 	buffer.Write(MagicCodeBytes)
@@ -93,8 +93,8 @@ func EncodeMessage(reqType RequestType, messageType pb.MessageTypeProto, msg pro
 	var headMapLength uint16
 
 	var className string
-	switch messageType {
-	case pb.MessageTypeProto_TYPE_REG_CLT:
+	switch msg.(type) {
+	case *pb.RegisterTMRequestProto:
 		// body
 		className = TmRegisterRequestClassName
 	default:

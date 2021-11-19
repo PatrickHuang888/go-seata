@@ -8,8 +8,6 @@ import (
 	"github.com/pkg/errors"
 	"google.golang.org/protobuf/proto"
 	"net"
-
-	"github.com/PatrickHuang888/go-seata/protocol/pb"
 )
 
 var (
@@ -124,7 +122,7 @@ func (c *Client) SyncCall(req proto.Message) (rsp proto.Message, err error) {
 }
 
 func (c *Client) Call(ctx context.Context, req proto.Message) (rsp proto.Message, err error) {
-	id, bs, err := v1.EncodeMessage(v1.MSGTYPE_RESQUEST_SYNC, pb.MessageTypeProto_TYPE_REG_CLT, req)
+	id, bs, err := v1.EncodeMessage(v1.MSGTYPE_RESQUEST_SYNC, req)
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
