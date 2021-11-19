@@ -84,7 +84,8 @@ func EncodeMessage(reqType RequestType, messageType pb.MessageTypeProto, msg pro
 
 	// request id 4 bytes
 	buf := make([]byte, 4)
-	binary.BigEndian.PutUint32(buf, nextRequestId())
+	reqId:= nextRequestId()
+	binary.BigEndian.PutUint32(buf, reqId)
 	buffer.Write(buf)
 
 	// optional headmap
@@ -118,7 +119,7 @@ func EncodeMessage(reqType RequestType, messageType pb.MessageTypeProto, msg pro
 	fullLength := uint32(headLength) + 4 + classNameLength + uint32(len(body))
 	binary.BigEndian.PutUint32(bs[3:7], fullLength)
 
-	return requestId, bs, nil
+	return reqId, bs, nil
 }
 
 func Decode(buffer *bytes.Buffer) (msg proto.Message, err error) {

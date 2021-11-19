@@ -118,6 +118,11 @@ func (op *operation) wait(ctx context.Context) (rsp proto.Message, err error) {
 	}
 }
 
+func (c *Client) SyncCall(req proto.Message) (rsp proto.Message, err error) {
+	ctx := context.Background()
+	return c.Call(ctx, req)
+}
+
 func (c *Client) Call(ctx context.Context, req proto.Message) (rsp proto.Message, err error) {
 	id, bs, err := v1.EncodeMessage(v1.MSGTYPE_RESQUEST_SYNC, pb.MessageTypeProto_TYPE_REG_CLT, req)
 	if err != nil {
@@ -126,7 +131,7 @@ func (c *Client) Call(ctx context.Context, req proto.Message) (rsp proto.Message
 
 	op := &operation{id: id, rsp: make(chan proto.Message)}
 
-	fmt.Printf("send \n")
+	fmt.Printf("sending %d \n", id)
 
 	select {
 	case c.sending <- op:
