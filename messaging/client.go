@@ -6,6 +6,7 @@ import (
 	"github.com/PatrickHuang888/go-seata/logging"
 	v1 "github.com/PatrickHuang888/go-seata/messaging/v1"
 	"github.com/pkg/errors"
+	"go.uber.org/atomic"
 	"google.golang.org/protobuf/proto"
 	"net"
 )
@@ -17,7 +18,8 @@ var (
 type Client struct {
 	conn net.Conn
 
-	closing chan struct{}
+	closing  chan struct{}
+	close atomic.Bool
 
 	pendings map[uint32]*operation
 
@@ -26,7 +28,7 @@ type Client struct {
 	sending chan *operation
 	sent    chan *operation
 
-	asyncHandlers  []func(msg proto.Message) error
+	asyncHandlers []func(msg proto.Message) error
 }
 
 type readMsg struct {
@@ -40,7 +42,7 @@ func NewClient(svrAddr string) (*Client, error) {
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
-	c := &Client{conn: conn, closing: make(chan struct{}), pendings: make(map[uint32]*operation), readOp: make(chan *readMsg),
+	c := &Client{conn: conn, closing: make(chan struct{}), close:atomic.Bool{}, pendings: make(map[uint32]*operation), readOp: make(chan *readMsg),
 		sending: make(chan *operation), sent: make(chan *operation)}
 	go c.run()
 	return c, nil
@@ -54,6 +56,7 @@ func (c *Client) run() {
 		select {
 		case <-c.closing:
 			fmt.Println("closing")
+			c.close.CAS(false, true)
 			if err := c.conn.Close(); err != nil {
 				logging.Warningf("closing error", err)
 			}
@@ -71,10 +74,10 @@ func (c *Client) run() {
 				logging.Errorf("read error closing")
 				c.closing <- struct{}{}
 			}
-			if pending.tp==v1.MSGTYPE_RESQUEST_ONEWAY {
+			if pending.tp == v1.MSGTYPE_RESQUEST_ONEWAY {
 				for _, handle := range c.asyncHandlers {
-					m := <- pending.rsp
-					if err:=handle(m);err!=nil {
+					m := <-pending.rsp
+					if err := handle(m); err != nil {
 						logging.Errorf("handling async message error %+v", err)
 					}
 				}
@@ -101,12 +104,19 @@ func (c *Client) read() {
 
 		fmt.Printf("after read msg\n")
 
+		if c.close.Load() {
+			fmt.Println("close, exit read")
+			// todo: handle read msg
+			return
+		}
+
 		read := &readMsg{id: reqId, msg: msg, err: err}
 		c.readOp <- read
 		if err != nil {
 			logging.Warningf("read error %+v, exit read", err)
 			break
 		}
+
 	}
 }
 
@@ -114,7 +124,7 @@ type operation struct {
 	id  uint32
 	rsp chan proto.Message
 	err error
-	tp v1.MessageType
+	tp  v1.MessageType
 }
 
 func (op *operation) wait(ctx context.Context) (rsp proto.Message, err error) {
@@ -139,7 +149,7 @@ func (c *Client) Call(ctx context.Context, req proto.Message) (rsp proto.Message
 		return
 	}
 
-	op := &operation{id: id, rsp: make(chan proto.Message), tp:v1.MSGTYPE_RESQUEST_SYNC}
+	op := &operation{id: id, rsp: make(chan proto.Message), tp: v1.MSGTYPE_RESQUEST_SYNC}
 
 	fmt.Printf("sending %d \n", id)
 
@@ -172,7 +182,7 @@ func (c *Client) Async(ctx context.Context, msg proto.Message) error {
 		return err
 	}
 
-	op := &operation{id: id, rsp: make(chan proto.Message, 1), tp:v1.MSGTYPE_RESQUEST_ONEWAY}
+	op := &operation{id: id, rsp: make(chan proto.Message, 1), tp: v1.MSGTYPE_RESQUEST_ONEWAY}
 
 	fmt.Printf("async sending %d \n", id)
 
@@ -209,7 +219,7 @@ func (c *Client) write(data []byte, retry bool) error {
 }
 
 func (c *Client) RegisterAsyncHandler(h func(message proto.Message) error) {
-	c.asyncHandlers= append(c.asyncHandlers, h)
+	c.asyncHandlers = append(c.asyncHandlers, h)
 }
 
 func (c *Client) Close() {

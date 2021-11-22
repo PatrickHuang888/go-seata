@@ -83,8 +83,8 @@ func TestAsyncCallToJava(t *testing.T) {
 		t.Fatalf("%+v", err)
 	}
 
-	fmt.Println("wait <-")
 	<- wait
-	fmt.Println("close")
+	fmt.Println("close client")
 	c.Close()
+	//time.Sleep(5*time.Second)
 }
