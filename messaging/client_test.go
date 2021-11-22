@@ -1,8 +1,10 @@
 package messaging
 
 import (
+	"fmt"
 	v1 "github.com/PatrickHuang888/go-seata/messaging/v1"
 	"github.com/PatrickHuang888/go-seata/protocol/pb"
+	"google.golang.org/protobuf/proto"
 	"sync"
 	"testing"
 )
@@ -22,11 +24,6 @@ func TestCallToJava(t *testing.T) {
 	_, ok := rsp.(*pb.RegisterTMRequestProto)
 	if !ok {
 		t.Errorf("response not tm register request")
-	}
-
-	msg := v1.NewRmRegMessage("rm-test", "tx-group-test", "resourceIds")
-	if err =c.AsyncCall(msg);err!=nil {
-		t.Fatalf("%+v", err)
 	}
 
 	c.Close()
@@ -60,5 +57,34 @@ func TestCallToJavaConcurrently(t *testing.T) {
 	}
 
 	wg.Wait()
+	c.Close()
+}
+
+// should connect to real seata-server
+func TestAsyncCallToJava(t *testing.T) {
+	wait := make(chan struct{})
+
+	c, err := NewClient("localhost:8091")
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.RegisterAsyncHandler(func(msg proto.Message) error {
+		_, ok := msg.(*pb.RegisterRMResponseProto)
+		if !ok {
+			t.Errorf("not rm register response")
+		}
+		fmt.Println("get the rm register response")
+		wait <- struct{}{}
+		return nil
+	})
+
+	msg := v1.NewRmRegMessage("rm-test", "tx-group-test", "resourceIds")
+	if err = c.AsyncCall(msg); err != nil {
+		t.Fatalf("%+v", err)
+	}
+
+	fmt.Println("wait <-")
+	<- wait
+	fmt.Println("close")
 	c.Close()
 }

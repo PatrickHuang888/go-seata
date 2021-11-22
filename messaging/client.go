@@ -25,6 +25,8 @@ type Client struct {
 
 	sending chan *operation
 	sent    chan *operation
+
+	asyncHandlers  []func(msg proto.Message) error
 }
 
 type readMsg struct {
@@ -51,6 +53,7 @@ func (c *Client) run() {
 	for {
 		select {
 		case <-c.closing:
+			fmt.Println("closing")
 			if err := c.conn.Close(); err != nil {
 				logging.Warningf("closing error", err)
 			}
@@ -67,6 +70,14 @@ func (c *Client) run() {
 			if read.err != nil {
 				logging.Errorf("read error closing")
 				c.closing <- struct{}{}
+			}
+			if pending.tp==v1.MSGTYPE_RESQUEST_ONEWAY {
+				for _, handle := range c.asyncHandlers {
+					m := <- pending.rsp
+					if err:=handle(m);err!=nil {
+						logging.Errorf("handling async message error %+v", err)
+					}
+				}
 			}
 
 		case sent := <-c.sent:
@@ -103,6 +114,7 @@ type operation struct {
 	id  uint32
 	rsp chan proto.Message
 	err error
+	tp v1.MessageType
 }
 
 func (op *operation) wait(ctx context.Context) (rsp proto.Message, err error) {
@@ -127,7 +139,7 @@ func (c *Client) Call(ctx context.Context, req proto.Message) (rsp proto.Message
 		return
 	}
 
-	op := &operation{id: id, rsp: make(chan proto.Message)}
+	op := &operation{id: id, rsp: make(chan proto.Message), tp:v1.MSGTYPE_RESQUEST_SYNC}
 
 	fmt.Printf("sending %d \n", id)
 
@@ -151,21 +163,33 @@ func (c *Client) Call(ctx context.Context, req proto.Message) (rsp proto.Message
 
 func (c *Client) AsyncCall(msg proto.Message) error {
 	ctx := context.Background()
-	return c.SendOneway(ctx, msg)
+	return c.Async(ctx, msg)
 }
 
-func (c *Client) SendOneway(ctx context.Context, msg proto.Message) error {
-	_, bs, err := v1.EncodeMessage(v1.MSGTYPE_RESQUEST_ONEWAY, msg)
+func (c *Client) Async(ctx context.Context, msg proto.Message) error {
+	id, bs, err := v1.EncodeMessage(v1.MSGTYPE_RESQUEST_ONEWAY, msg)
 	if err != nil {
 		return err
 	}
 
+	op := &operation{id: id, rsp: make(chan proto.Message, 1), tp:v1.MSGTYPE_RESQUEST_ONEWAY}
+
+	fmt.Printf("async sending %d \n", id)
+
 	select {
+	case c.sending <- op:
+		err = c.write(bs, false)
+		op.err = err
+		c.sent <- op
+		if err != nil {
+			return err
+		}
+
 	case <-ctx.Done():
 		return ctx.Err()
-	default:
-		return c.write(bs, false)
 	}
+
+	return nil
 }
 
 func (c *Client) write(data []byte, retry bool) error {
@@ -182,6 +206,10 @@ func (c *Client) write(data []byte, retry bool) error {
 
 	fmt.Printf("write finished\n")
 	return nil
+}
+
+func (c *Client) RegisterAsyncHandler(h func(message proto.Message) error) {
+	c.asyncHandlers= append(c.asyncHandlers, h)
 }
 
 func (c *Client) Close() {

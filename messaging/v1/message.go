@@ -41,6 +41,7 @@ const (
 	TypeNameTmRegisterRequest  = "io.seata.protocol.protobuf.RegisterTMRequestProto"
 	TypeNameTmRegisterResponse = "io.seata.protocol.protobuf.RegisterTMResponseProto"
 	TypeNameRmRegisterRequest  = "io.seata.protocol.protobuf.RegisterRMRequestProto"
+	TypeNameRmRegisterResponse = "io.seata.protocol.protobuf.RegisterRMResponseProto"
 
 	StartLength = 16
 
@@ -146,7 +147,10 @@ func Decode(buffer *bytes.Buffer) (msg proto.Message, err error) {
 		msg = &pb.RegisterTMResponseProto{}
 	case TypeNameTmRegisterRequest:
 		msg = &pb.RegisterTMRequestProto{}
-
+	case TypeNameRmRegisterRequest:
+		msg = &pb.RegisterRMRequestProto{}
+	case TypeNameRmRegisterResponse:
+		msg = &pb.RegisterRMResponseProto{}
 	default:
 		err = errors.New("response type name unknown")
 		return
@@ -188,7 +192,7 @@ func ReadMessage(conn net.Conn) (reqId uint32, msg proto.Message, err error) {
 	//headLength = binary.BigEndian.Uint16(buf[:2])
 	// todo:
 
-	// message type
+	// message type always response
 	//buffer.ReadByte()
 
 	serializer := buf[10]
