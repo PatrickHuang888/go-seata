@@ -9,6 +9,7 @@ import (
 	"go.uber.org/atomic"
 	"google.golang.org/protobuf/proto"
 	"net"
+	"time"
 )
 
 var (
@@ -18,8 +19,8 @@ var (
 type Client struct {
 	conn net.Conn
 
-	closing  chan struct{}
-	close atomic.Bool
+	closing chan struct{}
+	close   atomic.Bool
 
 	pendings map[uint32]*operation
 
@@ -29,6 +30,8 @@ type Client struct {
 	sent    chan *operation
 
 	asyncHandlers []func(msg proto.Message) error
+
+	timeout time.Duration
 }
 
 type readMsg struct {
@@ -42,7 +45,7 @@ func NewClient(svrAddr string) (*Client, error) {
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
-	c := &Client{conn: conn, closing: make(chan struct{}), close:atomic.Bool{}, pendings: make(map[uint32]*operation), readOp: make(chan *readMsg),
+	c := &Client{conn: conn, closing: make(chan struct{}), close: atomic.Bool{}, pendings: make(map[uint32]*operation), readOp: make(chan *readMsg),
 		sending: make(chan *operation), sent: make(chan *operation)}
 	go c.run()
 	return c, nil
@@ -100,6 +103,10 @@ func (c *Client) read() {
 
 		fmt.Printf("read ...\n")
 
+		if c.timeout != 0 {
+			c.conn.SetReadDeadline(time.Now().Add(c.timeout))
+		}
+
 		reqId, msg, err := v1.ReadMessage(c.conn)
 
 		fmt.Printf("after read msg\n")
@@ -149,26 +156,46 @@ func (c *Client) Call(ctx context.Context, req proto.Message) (rsp proto.Message
 		return
 	}
 
-	op := &operation{id: id, rsp: make(chan proto.Message), tp: v1.MSGTYPE_RESQUEST_SYNC}
+	op := &operation{id: id, rsp: make(chan proto.Message, 1), tp: v1.MSGTYPE_RESQUEST_SYNC}
 
 	fmt.Printf("sending %d \n", id)
 
-	select {
-	case c.sending <- op:
-		err = c.write(bs, false)
-		op.err = err
-		c.sent <- op
-		if err != nil {
-			return
-		}
-
-	case <-ctx.Done():
-		err = ctx.Err()
+	if err =c.send(ctx, op, bs);err!=nil {
 		return
 	}
 
 	rsp, err = op.wait(ctx)
 	return
+}
+
+func (c Client) send(ctx context.Context, op *operation, data []byte) error {
+	select {
+	case c.sending <- op:
+
+		// right now use ctx deadline first
+		deadline, ok := ctx.Deadline()
+		if ok {
+			c.conn.SetWriteDeadline(deadline)
+		}else {
+			if c.timeout!=0 {
+				deadline = time.Now().Add(c.timeout)
+				c.conn.SetWriteDeadline(deadline)
+			}
+		}
+
+		err := c.write(data, false)
+		op.err = err
+		c.sent <- op
+		if err != nil {
+			return err
+		}
+
+	case <-ctx.Done():
+		// when this happened ?
+		err := ctx.Err()
+		return err
+	}
+	return nil
 }
 
 func (c *Client) AsyncCall(msg proto.Message) error {
@@ -186,20 +213,7 @@ func (c *Client) Async(ctx context.Context, msg proto.Message) error {
 
 	fmt.Printf("async sending %d \n", id)
 
-	select {
-	case c.sending <- op:
-		err = c.write(bs, false)
-		op.err = err
-		c.sent <- op
-		if err != nil {
-			return err
-		}
-
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-
-	return nil
+	return c.send(ctx, op, bs)
 }
 
 func (c *Client) write(data []byte, retry bool) error {
