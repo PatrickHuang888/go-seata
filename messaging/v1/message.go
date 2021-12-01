@@ -45,9 +45,11 @@ const (
 
 	StartLength = 16
 
-	MSGTYPE_RESQUEST_SYNC     = MessageType(0)
-	MSGTYPE_RESQUEST_ONEWAY   = MessageType(2)
-	MSGTYPE_HEARTBEAT_REQUEST = MessageType(3)
+	MsgTypeRequestSync       = MessageType(0)
+	MsgTypeResponse          = MessageType(1)
+	MsgTypeRequestOneway     = MessageType(2)
+	MsgTypeHeartbeatRequest  = MessageType(3)
+	MsgTypeHeartbeatResponse = MessageType(4)
 )
 
 var (
@@ -60,19 +62,140 @@ var (
 
 type MessageType byte
 
-func NewRmRegMessage(appId string, txGroup string, resourceIds string) *pb.RegisterRMRequestProto {
+func (mt MessageType) String() string {
+	switch mt {
+	case MsgTypeRequestSync:
+		return "MsgTypeRequestSync"
+	case MsgTypeRequestOneway:
+		return "MsgTypeRequestOneway"
+	case MsgTypeResponse:
+		return "MsgTypeResponse"
+	case MsgTypeHeartbeatRequest:
+		return "MsgTypeHeartbeatRequest"
+	case MsgTypeHeartbeatResponse:
+		return "MsgTypeHeartbeatResponse"
+	}
+	return ""
+}
+
+type Message struct {
+	Id  uint32
+	Tp  MessageType
+	CMP byte // compressor
+	SER byte // serilizer
+	Ver byte
+	Msg proto.Message
+}
+
+func (m Message) String() string {
+	return fmt.Sprintf("Message id %d, tp %s, msg %s", m.Id, m.Tp.String(),  m.Msg)
+}
+
+func newPbRmRegRequest(appId string, txGroup string, resourceIds string) *pb.RegisterRMRequestProto {
 	return &pb.RegisterRMRequestProto{ResourceIds: resourceIds, AbstractIdentifyRequest: &pb.AbstractIdentifyRequestProto{
 		AbstractMessage: &pb.AbstractMessageProto{MessageType: pb.MessageTypeProto_TYPE_REG_RM},
 		Version:         SeataVersion, ApplicationId: appId, TransactionServiceGroup: txGroup}}
 }
 
-func NewTmRegRequest(appId string, txGroup string) *pb.RegisterTMRequestProto {
+func NewRmRegRequest(appId string, txGroup string, resourceIds string) *Message {
+	msg := &Message{Id: nextRequestId()}
+	msg.Tp = MsgTypeRequestOneway
+	msg.Ver = Version
+	msg.Msg = newPbRmRegRequest(appId, txGroup, resourceIds)
+	return msg
+}
+
+func newPbTmRegRequest(appId string, txGroup string) *pb.RegisterTMRequestProto {
 	return &pb.RegisterTMRequestProto{AbstractIdentifyRequest: &pb.AbstractIdentifyRequestProto{
 		AbstractMessage: &pb.AbstractMessageProto{MessageType: pb.MessageTypeProto_TYPE_REG_CLT},
 		Version:         SeataVersion, ApplicationId: appId, TransactionServiceGroup: txGroup}}
 }
 
-func EncodeMessage(msgType MessageType, msg proto.Message) (uint32, []byte, error) {
+func NewTmRegRequest(appId string, txGroup string) Message {
+	msg := Message{Id: nextRequestId()}
+	msg.Tp = MsgTypeRequestSync
+	msg.SER = SerializerProtoBuf
+	msg.Ver = Version
+	msg.Msg = newPbTmRegRequest(appId, txGroup)
+	return msg
+}
+
+func NewTmRegResponse(id uint32) *Message {
+	msg := &Message{}
+	msg.Id = id
+	msg.Tp = MsgTypeResponse
+	msg.SER = SerializerProtoBuf
+	msg.Ver = Version
+	msg.Msg = &pb.RegisterTMResponseProto{AbstractIdentifyResponse: &pb.AbstractIdentifyResponseProto{
+		AbstractResultMessage: &pb.AbstractResultMessageProto{AbstractMessage: &pb.AbstractMessageProto{MessageType: pb.MessageTypeProto_TYPE_REG_CLT_RESULT}}}}
+	return msg
+}
+
+func EncodeMessage(msg *Message) ([]byte, error) {
+	buffer := new(bytes.Buffer)
+
+	buffer.Write(MagicCodeBytes)
+	buffer.WriteByte(Version)
+
+	// full length 4 bytes
+	buffer.Write(make([]byte, 4))
+	// head length 2 bytes
+	buffer.Write(make([]byte, 2))
+
+	// message type
+	buffer.WriteByte(byte(msg.Tp))
+
+	// codec SHOULD be protobuf
+	buffer.WriteByte(0x2)
+
+	// compressor none
+	// todo:
+	buffer.WriteByte(msg.CMP)
+
+	// request id 4 bytes
+	buf := make([]byte, 4)
+	binary.BigEndian.PutUint32(buf, uint32(msg.Id))
+	buffer.Write(buf)
+
+	// optional headmap
+	// todo:
+	var headMapLength uint16
+
+	var typeName string
+	switch msg.Msg.(type) {
+	case *pb.RegisterTMRequestProto:
+		typeName = TypeNameTmRegisterRequest
+	case *pb.RegisterRMRequestProto:
+		typeName = TypeNameRmRegisterRequest
+	case *pb.RegisterTMResponseProto:
+		typeName = TypeNameTmRegisterResponse
+	default:
+		return nil, errors.New("message type unknown")
+	}
+
+	typeNameLength := uint32(len(typeName))
+	binary.BigEndian.PutUint32(buf, typeNameLength)
+	buffer.Write(buf)
+	buffer.Write([]byte(typeName))
+
+	body, err := proto.Marshal(msg.Msg)
+	if err != nil {
+		return nil, errors.WithStack(err)
+	}
+	buffer.Write(body)
+
+	bs := buffer.Bytes()
+
+	headLength := StartLength + headMapLength
+	binary.BigEndian.PutUint16(bs[7:9], headLength)
+
+	fullLength := uint32(headLength) + 4 + typeNameLength + uint32(len(body))
+	binary.BigEndian.PutUint32(bs[3:7], fullLength)
+
+	return bs, nil
+}
+
+func EncodeProtoMessage(msgType MessageType, msg proto.Message) (uint32, []byte, error) {
 	buffer := new(bytes.Buffer)
 
 	buffer.Write(MagicCodeBytes)
@@ -134,7 +257,7 @@ func EncodeMessage(msgType MessageType, msg proto.Message) (uint32, []byte, erro
 	return reqId, bs, nil
 }
 
-func Decode(buffer *bytes.Buffer) (msg proto.Message, err error) {
+func DecodePbMessage(buffer *bytes.Buffer) (msg proto.Message, err error) {
 	buf := make([]byte, 4)
 
 	buffer.Read(buf[:4])
@@ -168,11 +291,13 @@ func nextRequestId() uint32 {
 	return requestId
 }
 
-func ReadMessage(conn net.Conn) (reqId uint32, msg proto.Message, err error) {
+func ReadMessage(conn net.Conn) (msg *Message, err error) {
+	msg = &Message{}
 
 	buf := make([]byte, StartLength)
-	if _, err := io.ReadFull(conn, buf); err != nil {
-		return 0, nil, errors.Wrap(err, "read message start err")
+	if _, err = io.ReadFull(conn, buf); err != nil {
+		err = errors.Wrap(err, "read message start err")
+		return
 	}
 
 	fmt.Print("after read start\n")
@@ -193,10 +318,10 @@ func ReadMessage(conn net.Conn) (reqId uint32, msg proto.Message, err error) {
 	// todo:
 
 	// message type always response
-	//buffer.ReadByte()
+	msg.Tp = MessageType(buf[9])
 
-	serializer := buf[10]
-	if serializer != SerializerProtoBuf {
+	msg.SER = buf[10]
+	if msg.SER != SerializerProtoBuf {
 		err = errors.New("serializer only support protobuf")
 		return
 	}
@@ -205,7 +330,7 @@ func ReadMessage(conn net.Conn) (reqId uint32, msg proto.Message, err error) {
 	// todo:
 
 	// request id
-	reqId = binary.BigEndian.Uint32(buf[12:16])
+	msg.Id = binary.BigEndian.Uint32(buf[12:16])
 
 	length := binary.BigEndian.Uint32(buf[3:7])
 
@@ -216,6 +341,6 @@ func ReadMessage(conn net.Conn) (reqId uint32, msg proto.Message, err error) {
 	}
 
 	buffer := bytes.NewBuffer(buf)
-	msg, err = Decode(buffer)
+	msg.Msg, err = DecodePbMessage(buffer)
 	return
 }

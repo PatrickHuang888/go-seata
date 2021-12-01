@@ -70,6 +70,10 @@ func NewLogging(logger *zap.Logger) Logging {
 	}
 }
 
+func Debugf(template string, args ...interface{}) {
+	global.sugared.Debugf(template, args)
+}
+
 func Error(err error) {
 	global.sugared.Error(err)
 }

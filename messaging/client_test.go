@@ -4,9 +4,9 @@ import (
 	"fmt"
 	v1 "github.com/PatrickHuang888/go-seata/messaging/v1"
 	"github.com/PatrickHuang888/go-seata/protocol/pb"
-	"google.golang.org/protobuf/proto"
 	"sync"
 	"testing"
+	"time"
 )
 
 // should start io.seata.core.rpc.netty.v1.ProtocolV1Server first
@@ -17,11 +17,11 @@ func TestCallToJava(t *testing.T) {
 	}
 
 	req := v1.NewTmRegRequest("tm-test", "tx-group-test")
-	rsp, err := c.SyncCall(req)
+	rsp, err := c.Call(req)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, ok := rsp.(*pb.RegisterTMRequestProto)
+	_, ok := rsp.Msg.(*pb.RegisterTMRequestProto)
 	if !ok {
 		t.Errorf("response not tm register request")
 	}
@@ -45,11 +45,11 @@ func TestCallToJavaConcurrently(t *testing.T) {
 			defer wg.Done()
 
 			req := v1.NewTmRegRequest("req-test", "tx-group-test")
-			rsp, err := c.SyncCall(req)
+			rsp, err := c.Call(req)
 			if err != nil {
 				t.Fatal(err)
 			}
-			_, ok := rsp.(*pb.RegisterTMRequestProto)
+			_, ok := rsp.Msg.(*pb.RegisterTMRequestProto)
 			if !ok {
 				t.Errorf("response not tm register request")
 			}
@@ -68,8 +68,8 @@ func TestAsyncCallToJava(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.RegisterAsyncHandler(func(msg proto.Message) error {
-		_, ok := msg.(*pb.RegisterRMResponseProto)
+	c.RegisterAsyncRspHandler(func(c *Channel, msg v1.Message) error {
+		_, ok := msg.Msg.(*pb.RegisterRMResponseProto)
 		if !ok {
 			t.Errorf("not rm register response")
 		}
@@ -78,13 +78,13 @@ func TestAsyncCallToJava(t *testing.T) {
 		return nil
 	})
 
-	msg := v1.NewRmRegMessage("rm-test", "tx-group-test", "resourceIds")
+	msg := v1.NewRmRegRequest("rm-test", "tx-group-test", "resourceIds")
 	if err = c.AsyncCall(msg); err != nil {
 		t.Fatalf("%+v", err)
 	}
 
-	<- wait
+	<-wait
 	fmt.Println("close client")
 	c.Close()
-	//time.Sleep(5*time.Second)
+	time.Sleep(5 * time.Second)
 }
