@@ -46,8 +46,6 @@ func (s *Server) Serv() {
 
 			c, err := l.Accept()
 
-			fmt.Println("accept")
-
 			if err != nil {
 				if !s.close.Load() {
 					logging.Errorf("accept error %s\n", err.Error())
@@ -69,6 +67,7 @@ func (s *Server) Serv() {
 	}()
 
 	logging.Info("serving...")
+
 	select {
 	case <-s.closing:
 		logging.Info("server closing")

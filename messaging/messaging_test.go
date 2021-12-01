@@ -35,7 +35,7 @@ func TestTimeOut (t *testing.T) {
 	}
 
 	c.Close()
-
 	time.Sleep(5 *time.Second)
 	s.Close()
+	time.Sleep(5 *time.Second)
 }

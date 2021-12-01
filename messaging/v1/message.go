@@ -165,10 +165,12 @@ func EncodeMessage(msg *Message) ([]byte, error) {
 	switch msg.Msg.(type) {
 	case *pb.RegisterTMRequestProto:
 		typeName = TypeNameTmRegisterRequest
-	case *pb.RegisterRMRequestProto:
-		typeName = TypeNameRmRegisterRequest
 	case *pb.RegisterTMResponseProto:
 		typeName = TypeNameTmRegisterResponse
+	case *pb.RegisterRMRequestProto:
+		typeName = TypeNameRmRegisterRequest
+	case *pb.RegisterRMResponseProto:
+		typeName= TypeNameRmRegisterResponse
 	default:
 		return nil, errors.New("message type unknown")
 	}
