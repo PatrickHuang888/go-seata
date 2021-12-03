@@ -15,7 +15,7 @@ var (
 	stdout zapcore.WriteSyncer
 	stderr zapcore.WriteSyncer
 
-	level = zap.NewAtomicLevelAt(zapcore.InfoLevel)
+	level = zap.NewAtomicLevelAt(zapcore.DebugLevel)
 
 	global Logging
 )
@@ -72,6 +72,10 @@ func NewLogging(logger *zap.Logger) Logging {
 
 func Debugf(template string, args ...interface{}) {
 	global.sugared.Debugf(template, args)
+}
+
+func Debug(args ...interface{})  {
+	global.sugared.Debug(args)
 }
 
 func Error(err error) {

@@ -58,6 +58,8 @@ var (
 	MagicCodeBytes = []byte{0xda, 0xda}
 	Version        = byte(1)
 	SeataVersion   = "1.4.2"
+
+	MessageError = errors.New("message error")
 )
 
 type MessageType byte

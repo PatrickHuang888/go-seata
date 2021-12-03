@@ -7,7 +7,6 @@ import (
 	v1 "github.com/PatrickHuang888/go-seata/messaging/v1"
 	"github.com/pkg/errors"
 	"go.uber.org/atomic"
-	"io"
 	"net"
 	"time"
 )
@@ -19,12 +18,12 @@ type Channel struct {
 
 	conn net.Conn
 
-	closing chan struct{}
-	close   atomic.Bool
+	closing   chan struct{}
+	doClosing atomic.Bool
 
 	pendings map[uint32]*operation
 
-	readMsg chan *v1.Message
+	readMsg chan *readMsg
 
 	sending chan *operation
 	sent    chan *operation
@@ -35,20 +34,17 @@ type Channel struct {
 	timeout time.Duration
 }
 
-type MsgHandler func(channel *Channel, message v1.Message) error
+type MsgHandler func(*Channel, v1.Message) error
 
-func NewChannelWithName(name string, conn net.Conn) Channel {
-	c := Channel{name: name, conn: conn, closing: make(chan struct{}), close: atomic.Bool{}, pendings: make(map[uint32]*operation), readMsg: make(chan *v1.Message),
-		sending: make(chan *operation), sent: make(chan *operation)}
+func NewChannelWithName(name string, conn net.Conn) *Channel {
+	c := &Channel{name: name, conn: conn, closing: make(chan struct{}), pendings: make(map[uint32]*operation),
+		readMsg: make(chan *readMsg), sending: make(chan *operation), sent: make(chan *operation)}
 	go c.run()
 	return c
 }
 
 func NewChannel(conn net.Conn) *Channel {
-	c := &Channel{name: conn.RemoteAddr().String(), conn: conn, closing: make(chan struct{}), close: atomic.Bool{}, pendings: make(map[uint32]*operation),
-		readMsg: make(chan *v1.Message), sending: make(chan *operation), sent: make(chan *operation)}
-	go c.run()
-	return c
+	return NewChannelWithName(conn.RemoteAddr().String(), conn)
 }
 
 func (c *Channel) run() {
@@ -58,38 +54,52 @@ func (c *Channel) run() {
 		select {
 		case <-c.closing:
 			fmt.Println("run closing")
+
+			if !c.doClosing.Load() {
+				c.doClosing.CAS(false, true)
+
+				fmt.Println("conn close")
+				if err := c.conn.Close(); err != nil {
+					logging.Warningf("closing error %s", err)
+				}
+			}
 			return
 
 		case read := <-c.readMsg:
 
-			fmt.Printf("read message type %s\n", read.Tp.String())
+			fmt.Printf("read message type %s\n", read.msg.Tp.String())
 
-			switch read.Tp {
+			switch read.msg.Tp {
 			case v1.MsgTypeResponse:
-				pending := c.pendings[read.Id]
+				pending := c.pendings[read.msg.Id]
 				if pending == nil {
-					logging.Warningf("read message req id %d not found!", read.Id)
+					logging.Warningf("read message req id %d not found!", read.msg.Id)
 				}
-				delete(c.pendings, read.Id)
+				delete(c.pendings, read.msg.Id)
 
 				if pending.reqTp == v1.MsgTypeRequestOneway {
-					for _, handle := range c.asyncRspHandlers {
-						if err := handle(c, *read); err != nil {
-							logging.Errorf("handling async")
+					if read.err == nil {
+						for _, handle := range c.asyncRspHandlers {
+							if err := handle(c, *read.msg); err != nil {
+								logging.Errorf("handling async")
+							}
 						}
 					}
 
 				} else {
-					pending.rsp <- read
+					pending.err = read.err
+					pending.rsp <- read.msg
 				}
 
 			case v1.MsgTypeRequestSync:
 				fallthrough
 			case v1.MsgTypeRequestOneway:
 
-				for _, handle := range c.reqHandlers {
-					if err := handle(c, *read); err != nil {
-						logging.Errorf("handling request message error %+v", err)
+				if read.err == nil {
+					for _, handle := range c.reqHandlers {
+						if err := handle(c, *read.msg); err != nil {
+							logging.Errorf("handling request message error %+v", err)
+						}
 					}
 				}
 
@@ -98,7 +108,7 @@ func (c *Channel) run() {
 			case v1.MsgTypeHeartbeatResponse:
 
 			default:
-				logging.Warningf("message type unknown %d", read.Tp)
+				logging.Warningf("message type unknown %d", read.msg.Tp)
 			}
 
 		case sent := <-c.sent:
@@ -121,8 +131,8 @@ type readMsg struct {
 func (c *Channel) read() {
 	for {
 
-		if c.close.Load() {
-			fmt.Println("close, exit read")
+		if c.doClosing.Load() {
+			fmt.Println("read exit")
 			// todo: handling msg already read ?
 			return
 		}
@@ -137,18 +147,18 @@ func (c *Channel) read() {
 
 		fmt.Printf("after read msg\n")
 
-		if err == nil {
-			c.readMsg <- msg
-
-		} else {
-			if "EOF" == io.EOF.Error() {
-				logging.Debugf("read EOF, closing conn")
+		if err != nil {
+			if err == v1.MessageError {
+				logging.Warning("read error message error")
+			} else {
+				logging.Warningf("read error %s, read exit", err)
 				// close directly?
 				c.Close()
-			} else {
-				logging.Warningf("read error %s", err)
+				return
 			}
 		}
+
+		c.readMsg <- &readMsg{msg: msg, err: err}
 	}
 }
 
@@ -283,14 +293,5 @@ func (c *Channel) write(data []byte, retry bool) error {
 }
 
 func (c *Channel) Close() {
-	if !c.close.Load() {
-
-		fmt.Println("channel close")
-
-		c.closing <- struct{}{}
-		c.close.CAS(false, true)
-		if err := c.conn.Close(); err != nil {
-			logging.Warningf("closing error %s", err)
-		}
-	}
+	c.closing <- struct{}{}
 }
