@@ -19,6 +19,8 @@ type Channel struct {
 
 	conn net.Conn
 
+	readReady chan struct{}
+
 	closing   chan struct{}
 	doClosing atomic.Bool
 
@@ -45,8 +47,11 @@ type MsgHandler func(*Channel, v1.Message) error
 
 func NewChannelWithName(name string, conn net.Conn) *Channel {
 	c := &Channel{name: name, conn: conn, closing: make(chan struct{}), pendings: make(map[uint32]*operation),
-		readMsg: make(chan *readMsg), sending: make(chan *operation), sent: make(chan *operation)}
+		readMsg: make(chan *readMsg), sending: make(chan *operation), sent: make(chan *operation), readReady: make(chan struct{})}
+
 	go c.run()
+	<-c.readReady
+
 	return c
 }
 
@@ -140,6 +145,12 @@ type readMsg struct {
 }
 
 func (c *Channel) read() {
+	if c.timeout != 0 {
+		c.conn.SetReadDeadline(time.Now().Add(c.timeout))
+	}
+
+	c.readReady <- struct{}{}
+
 	for {
 
 		if c.doClosing.Load() {
@@ -149,10 +160,6 @@ func (c *Channel) read() {
 		}
 
 		fmt.Printf("read ...\n")
-
-		if c.timeout != 0 {
-			c.conn.SetReadDeadline(time.Now().Add(c.timeout))
-		}
 
 		msg, err := v1.ReadMessage(c.conn)
 

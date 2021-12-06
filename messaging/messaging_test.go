@@ -7,13 +7,11 @@ import (
 	"time"
 )
 
-func TestTimeOut (t *testing.T) {
+func TestBasicSendAndReceive(t *testing.T) {
 
 	s := NewServer("localhost:7788")
 	s.RegisterRequestHandler(handleTmReg)
 	go s.Serv()
-
-	time.Sleep(2 *time.Second)
 
 	c, err := NewClient("localhost:7788")
 	if err != nil {
@@ -30,12 +28,12 @@ func TestTimeOut (t *testing.T) {
 		t.Errorf("response not tm register request")
 	}
 
-	if tmRsp.AbstractIdentifyResponse.AbstractResultMessage.GetResultCode()!= pb.ResultCodeProto_Success {
+	if tmRsp.AbstractIdentifyResponse.AbstractResultMessage.GetResultCode() != pb.ResultCodeProto_Success {
 		t.Errorf("result error")
 	}
 
 	c.Close()
-	time.Sleep(2 *time.Second)
+	time.Sleep(2 * time.Second)
 	s.Close()
-	time.Sleep(2 *time.Second)
+	time.Sleep(2 * time.Second)
 }

@@ -39,62 +39,58 @@ func (s *Server) Serv() {
 
 	go func() {
 		for {
+			select {
+			case name := <-s.channelClose:
+				fmt.Println("server close channel")
+				delete(s.channels, name)
 
-			if s.close.Load() {
-				logging.Infof("closing listener")
+			case <-s.closing:
+				logging.Info("server closing")
+
+				s.close.CAS(false, true)
+
+				if l != nil {
+					if err := l.Close(); err != nil {
+						logging.Errorf("listener close error", err)
+					}
+				}
+
+				for _, ch := range s.channels {
+					ch.Close()
+				}
+
+				s.closed <- struct{}{}
 				return
 			}
-
-			c, err := l.Accept()
-
-			if err != nil {
-				if !s.close.Load() {
-					logging.Errorf("accept error %s\n", err.Error())
-				}
-				continue
-			}
-
-			ch := NewChannel(c)
-			ch.closeListener = s
-			s.channels[ch.name] = ch
-			for _, h := range s.reqHandlers {
-				ch.RegisterRequestHandler(h)
-			}
-			for _, h := range s.asyncRspHandlers {
-				ch.RegisterAsyncRspHandler(h)
-			}
-
-			go ch.run()
 		}
 	}()
 
-	logging.Info("serving...")
-
 loop:
 	for {
-		select {
-		case name := <-s.channelClose:
-			fmt.Println("server close channel")
-			delete(s.channels, name)
+		c, err := l.Accept()
 
-		case <-s.closing:
-			logging.Info("server closing")
-
-			s.close.CAS(false, true)
-
-			if l != nil {
-				if err := l.Close(); err != nil {
-					logging.Errorf("listener close error", err)
-				}
+		if err != nil {
+			if s.close.Load() {
+				logging.Infof("closing listener")
+				break loop
+			} else {
+				logging.Errorf("accept error %s\n", err.Error())
+				continue
 			}
 
-			for _, ch := range s.channels {
-				ch.Close()
-			}
-
-			s.closed <- struct{}{}
-			break loop
 		}
+
+		ch := NewChannel(c)
+		ch.closeListener = s
+		s.channels[ch.name] = ch
+		for _, h := range s.reqHandlers {
+			ch.RegisterRequestHandler(h)
+		}
+		for _, h := range s.asyncRspHandlers {
+			ch.RegisterAsyncRspHandler(h)
+		}
+
+		go ch.run()
 	}
 
 	fmt.Println("server closed")
