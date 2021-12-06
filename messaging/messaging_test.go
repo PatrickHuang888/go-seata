@@ -13,6 +13,8 @@ func TestBasicSendAndReceive(t *testing.T) {
 	s.RegisterRequestHandler(handleTmReg)
 	go s.Serv()
 
+	<-s.ready
+
 	c, err := NewClient("localhost:7788")
 	if err != nil {
 		t.Fatal(err)

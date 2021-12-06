@@ -13,6 +13,8 @@ import (
 type Server struct {
 	addr string
 
+	ready chan struct{}
+
 	close        atomic.Bool
 	closing      chan struct{}
 	closed       chan struct{}
@@ -26,7 +28,7 @@ type Server struct {
 
 func NewServer(addr string) *Server {
 	return &Server{addr: addr, close: atomic.Bool{}, closing: make(chan struct{}, 1), closed: make(chan struct{}, 1),
-		channels: map[string]*Channel{}, channelClose: make(chan string)}
+		channels: map[string]*Channel{}, channelClose: make(chan string), ready: make(chan struct{}, 1)}
 }
 
 func (s *Server) Serv() {
@@ -36,6 +38,8 @@ func (s *Server) Serv() {
 		s.Close()
 	}
 	logging.Infof("listen on %s\n", s.addr)
+
+	s.ready <- struct{}{}
 
 	go func() {
 		for {
