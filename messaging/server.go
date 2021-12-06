@@ -13,9 +13,10 @@ import (
 type Server struct {
 	addr string
 
-	close   atomic.Bool
-	closing chan struct{}
-	closed  chan struct{}
+	close        atomic.Bool
+	closing      chan struct{}
+	closed       chan struct{}
+	channelClose chan string
 
 	channels map[string]*Channel
 
@@ -25,7 +26,7 @@ type Server struct {
 
 func NewServer(addr string) *Server {
 	return &Server{addr: addr, close: atomic.Bool{}, closing: make(chan struct{}, 1), closed: make(chan struct{}, 1),
-		channels: map[string]*Channel{}}
+		channels: map[string]*Channel{}, channelClose: make(chan string)}
 }
 
 func (s *Server) Serv() {
@@ -54,6 +55,7 @@ func (s *Server) Serv() {
 			}
 
 			ch := NewChannel(c)
+			ch.closeListener = s
 			s.channels[ch.name] = ch
 			for _, h := range s.reqHandlers {
 				ch.RegisterRequestHandler(h)
@@ -68,23 +70,31 @@ func (s *Server) Serv() {
 
 	logging.Info("serving...")
 
-	select {
-	case <-s.closing:
-		logging.Info("server closing")
+loop:
+	for {
+		select {
+		case name := <-s.channelClose:
+			fmt.Println("server close channel")
+			delete(s.channels, name)
 
-		s.close.CAS(false, true)
+		case <-s.closing:
+			logging.Info("server closing")
 
-		if l != nil {
-			if err := l.Close(); err != nil {
-				logging.Errorf("listener close error", err)
+			s.close.CAS(false, true)
+
+			if l != nil {
+				if err := l.Close(); err != nil {
+					logging.Errorf("listener close error", err)
+				}
 			}
-		}
 
-		for _, ch := range s.channels {
-			ch.Close()
-		}
+			for _, ch := range s.channels {
+				ch.Close()
+			}
 
-		s.closed <- struct{}{}
+			s.closed <- struct{}{}
+			break loop
+		}
 	}
 
 	fmt.Println("server closed")
@@ -103,13 +113,17 @@ func (s *Server) Close() {
 	s.closing <- struct{}{}
 }
 
+func (s *Server) ChannelClose(name string) {
+	s.channelClose <- name
+}
+
 func handleTmReg(c *Channel, req v1.Message) error {
 
 	_, ok := req.Msg.(*pb.RegisterTMRequestProto)
 	if ok {
 		rsp := v1.NewTmRegResponse(req.Id)
 		rsp.Msg.(*pb.RegisterTMResponseProto).AbstractIdentifyResponse.AbstractResultMessage.ResultCode = pb.ResultCodeProto_Success
-		logging.Debugf("send tm reg response %s", req.String())
+		logging.Debugf("send tm reg response %s", rsp.String())
 
 		ctx := context.Background()
 

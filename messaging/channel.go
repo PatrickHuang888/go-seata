@@ -32,6 +32,12 @@ type Channel struct {
 	asyncRspHandlers []MsgHandler
 
 	timeout time.Duration
+
+	closeListener CloseListener
+}
+
+type CloseListener interface {
+	ChannelClose(string)
 }
 
 type MsgHandler func(*Channel, v1.Message) error
@@ -61,6 +67,10 @@ func (c *Channel) run() {
 				fmt.Println("conn close")
 				if err := c.conn.Close(); err != nil {
 					logging.Warningf("closing error %s", err)
+				}
+
+				if c.closeListener != nil {
+					c.closeListener.ChannelClose(c.name)
 				}
 			}
 			return
