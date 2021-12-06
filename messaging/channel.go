@@ -8,6 +8,7 @@ import (
 	"github.com/pkg/errors"
 	"go.uber.org/atomic"
 	"net"
+	"strings"
 	"time"
 )
 
@@ -158,10 +159,18 @@ func (c *Channel) read() {
 		fmt.Printf("after read msg\n")
 
 		if err != nil {
-			if err == v1.MessageError {
-				logging.Warning("read error message error")
+			if err == v1.NotSeataMessage || err == v1.MessageFormatError {
+				logging.Warning("read message error")
+				continue
 			} else {
-				logging.Warningf("read error %s, read exit", err)
+				if err.Error() == "EOF" {
+					logging.Debugf("read %s eof exit", c.name)
+				} else if strings.Contains(err.Error(), "use of closed network connection") {
+					logging.Debugf("remote close %s ", c.name)
+				} else {
+					logging.Warningf("read error %s, read exit", err)
+				}
+
 				// close directly?
 				c.Close()
 				return

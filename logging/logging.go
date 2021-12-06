@@ -74,12 +74,12 @@ func Debugf(template string, args ...interface{}) {
 	global.sugared.Debugf(template, args)
 }
 
-func Debug(args ...interface{})  {
+func Debug(args ...interface{}) {
 	global.sugared.Debug(args)
 }
 
-func Error(err error) {
-	global.sugared.Error(err)
+func Error(args interface{}) {
+	global.sugared.Error(args)
 }
 
 func Errorf(template string, args ...interface{}) {

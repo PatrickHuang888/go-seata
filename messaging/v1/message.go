@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"github.com/PatrickHuang888/go-seata/logging"
 	"github.com/PatrickHuang888/go-seata/protocol/pb"
 	"github.com/pkg/errors"
 	"google.golang.org/protobuf/proto"
@@ -59,7 +60,9 @@ var (
 	Version        = byte(1)
 	SeataVersion   = "1.4.2"
 
-	MessageError = errors.New("message error")
+	MessageError       = errors.New("message error")
+	NotSeataMessage    = errors.New("not seata message")
+	MessageFormatError = errors.New("message format error")
 )
 
 type MessageType byte
@@ -90,7 +93,7 @@ type Message struct {
 }
 
 func (m Message) String() string {
-	return fmt.Sprintf("Message id %d, tp %s, msg %s", m.Id, m.Tp.String(),  m.Msg)
+	return fmt.Sprintf("Message id %d, tp %s, msg %s", m.Id, m.Tp.String(), m.Msg)
 }
 
 func newPbRmRegRequest(appId string, txGroup string, resourceIds string) *pb.RegisterRMRequestProto {
@@ -172,7 +175,7 @@ func EncodeMessage(msg *Message) ([]byte, error) {
 	case *pb.RegisterRMRequestProto:
 		typeName = TypeNameRmRegisterRequest
 	case *pb.RegisterRMResponseProto:
-		typeName= TypeNameRmRegisterResponse
+		typeName = TypeNameRmRegisterResponse
 	default:
 		return nil, errors.New("message type unknown")
 	}
@@ -284,8 +287,8 @@ func DecodePbMessage(buffer *bytes.Buffer) (msg proto.Message, err error) {
 	}
 
 	if err = proto.Unmarshal(buffer.Bytes(), msg); err != nil {
-		err = errors.WithStack(err)
-		return
+		logging.Errorf("unmarshal message error", err)
+		return nil, MessageFormatError
 	}
 	return
 }
@@ -300,7 +303,7 @@ func ReadMessage(conn net.Conn) (msg *Message, err error) {
 
 	buf := make([]byte, StartLength)
 	if _, err = io.ReadFull(conn, buf); err != nil {
-		err = errors.Wrap(err, "read message start err")
+		err = errors.WithStack(err)
 		return
 	}
 
@@ -308,12 +311,10 @@ func ReadMessage(conn net.Conn) (msg *Message, err error) {
 
 	// magic code
 	if buf[0] != MagicCodeBytes[0] {
-		err = errors.New("magic code error")
-		return
+		return nil, NotSeataMessage
 	}
 	if buf[1] != MagicCodeBytes[1] {
-		err = errors.New("magic code error")
-		return
+		return nil, NotSeataMessage
 	}
 
 	// skip head now
@@ -326,8 +327,8 @@ func ReadMessage(conn net.Conn) (msg *Message, err error) {
 
 	msg.SER = buf[10]
 	if msg.SER != SerializerProtoBuf {
-		err = errors.New("serializer only support protobuf")
-		return
+		logging.Error("serializer only support protobuf")
+		return nil, MessageFormatError
 	}
 
 	// skip compressor
