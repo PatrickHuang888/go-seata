@@ -117,6 +117,10 @@ func (s *Server) ChannelClose(name string) {
 	s.channelClose <- name
 }
 
+func (s *Server) Ready() <-chan struct{} {
+	return s.ready
+}
+
 func handleTmReg(c *Channel, req v1.Message) error {
 
 	_, ok := req.Msg.(*pb.RegisterTMRequestProto)

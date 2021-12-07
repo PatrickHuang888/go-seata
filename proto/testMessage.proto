@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+package io.seata.protocol.protobuf;
+
+import "abstractIdentifyRequest.proto";
+import "abstractIdentifyResponse.proto";
+
+option go_package = "/pb";
+
+
+message TestTimeoutRequestProto {
+  AbstractIdentifyRequestProto abstractIdentifyRequest = 1;
+  uint32 sleepTime = 2;
+}
+
+message TestTimeoutResponseProto {
+  AbstractIdentifyResponseProto abstractIdentifyResponse = 1;
+}

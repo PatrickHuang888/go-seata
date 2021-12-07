@@ -8,7 +8,6 @@ import (
 	"github.com/pkg/errors"
 	"go.uber.org/atomic"
 	"net"
-	"strings"
 	"time"
 )
 
@@ -37,6 +36,8 @@ type Channel struct {
 	timeout time.Duration
 
 	closeListener CloseListener
+
+	readErr chan error // errors from read
 }
 
 type CloseListener interface {
@@ -45,9 +46,10 @@ type CloseListener interface {
 
 type MsgHandler func(*Channel, v1.Message) error
 
-func NewChannelWithName(name string, conn net.Conn) *Channel {
-	c := &Channel{name: name, conn: conn, closing: make(chan struct{}), pendings: make(map[uint32]*operation),
-		readMsg: make(chan *readMsg), sending: make(chan *operation), sent: make(chan *operation), readReady: make(chan struct{})}
+func NewChannelWithConfig(name string, timeout int, conn net.Conn) *Channel {
+	c := &Channel{name: name, conn: conn, closing: make(chan struct{}, 1), pendings: make(map[uint32]*operation),
+		readMsg: make(chan *readMsg), sending: make(chan *operation), sent: make(chan *operation), readReady: make(chan struct{}),
+		timeout: time.Duration(timeout) * time.Microsecond, readErr: make(chan error)}
 
 	go c.run()
 	<-c.readReady
@@ -56,7 +58,7 @@ func NewChannelWithName(name string, conn net.Conn) *Channel {
 }
 
 func NewChannel(conn net.Conn) *Channel {
-	return NewChannelWithName(conn.RemoteAddr().String(), conn)
+	return NewChannelWithConfig(conn.RemoteAddr().String(), 0, conn)
 }
 
 func (c *Channel) run() {
@@ -79,7 +81,19 @@ func (c *Channel) run() {
 					c.closeListener.ChannelClose(c.name)
 				}
 			}
+			fmt.Println("run exit")
 			return
+
+		case err := <-c.readErr:
+			logging.Warningf("read error %s, close channel", err)
+
+			for id, op := range c.pendings {
+				delete(c.pendings, id)
+				op.err = err
+				close(op.rsp)
+			}
+
+			c.Close()
 
 		case read := <-c.readMsg:
 
@@ -166,7 +180,7 @@ func (c *Channel) read() {
 		fmt.Printf("after read msg\n")
 
 		if err != nil {
-			if err == v1.NotSeataMessage || err == v1.MessageFormatError {
+			/*if err == v1.NotSeataMessage || err == v1.MessageFormatError {
 				logging.Warning("read message error")
 				continue
 			} else {
@@ -181,7 +195,9 @@ func (c *Channel) read() {
 				// close directly?
 				c.Close()
 				return
-			}
+			}*/
+			c.readErr <- err
+			return
 		}
 
 		c.readMsg <- &readMsg{msg: msg, err: err}
@@ -209,8 +225,14 @@ func (op *operation) wait(ctx context.Context) (rsp v1.Message, err error) {
 	select {
 	case <-ctx.Done():
 		return v1.Message{}, ctx.Err()
-	case rsp := <-op.rsp:
-		return *rsp, op.err
+	case msg := <-op.rsp:
+		if msg == nil {
+			rsp = v1.Message{}
+		} else {
+			rsp = *msg
+		}
+		err = op.err
+		return
 	}
 }
 

@@ -86,8 +86,8 @@ func (mt MessageType) String() string {
 type Message struct {
 	Id  uint32
 	Tp  MessageType
-	CMP byte // compressor
-	SER byte // serilizer
+	Cmp byte // compressor
+	Ser byte // serilizer
 	Ver byte
 	Msg proto.Message
 }
@@ -119,7 +119,7 @@ func newPbTmRegRequest(appId string, txGroup string) *pb.RegisterTMRequestProto 
 func NewTmRegRequest(appId string, txGroup string) Message {
 	msg := Message{Id: nextRequestId()}
 	msg.Tp = MsgTypeRequestSync
-	msg.SER = SerializerProtoBuf
+	msg.Ser = SerializerProtoBuf
 	msg.Ver = Version
 	msg.Msg = newPbTmRegRequest(appId, txGroup)
 	return msg
@@ -129,7 +129,7 @@ func NewTmRegResponse(id uint32) *Message {
 	msg := &Message{}
 	msg.Id = id
 	msg.Tp = MsgTypeResponse
-	msg.SER = SerializerProtoBuf
+	msg.Ser = SerializerProtoBuf
 	msg.Ver = Version
 	msg.Msg = &pb.RegisterTMResponseProto{AbstractIdentifyResponse: &pb.AbstractIdentifyResponseProto{
 		AbstractResultMessage: &pb.AbstractResultMessageProto{AbstractMessage: &pb.AbstractMessageProto{MessageType: pb.MessageTypeProto_TYPE_REG_CLT_RESULT}}}}
@@ -155,7 +155,7 @@ func EncodeMessage(msg *Message) ([]byte, error) {
 
 	// compressor none
 	// todo:
-	buffer.WriteByte(msg.CMP)
+	buffer.WriteByte(msg.Cmp)
 
 	// request id 4 bytes
 	buf := make([]byte, 4)
@@ -325,8 +325,8 @@ func ReadMessage(conn net.Conn) (msg *Message, err error) {
 	// message type always response
 	msg.Tp = MessageType(buf[9])
 
-	msg.SER = buf[10]
-	if msg.SER != SerializerProtoBuf {
+	msg.Ser = buf[10]
+	if msg.Ser != SerializerProtoBuf {
 		logging.Error("serializer only support protobuf")
 		return nil, MessageFormatError
 	}

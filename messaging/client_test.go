@@ -6,7 +6,6 @@ import (
 	"github.com/PatrickHuang888/go-seata/protocol/pb"
 	"sync"
 	"testing"
-	"time"
 )
 
 // should start io.seata.core.rpc.netty.v1.ProtocolV1Server first
@@ -27,7 +26,7 @@ func TestCallToJava(t *testing.T) {
 	}
 
 	c.Close()
-	time.Sleep(5 * time.Second)
+	//time.Sleep(5 * time.Second)
 }
 
 // should start io.seata.core.rpc.netty.v1.ProtocolV1Server first

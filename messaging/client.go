@@ -15,11 +15,16 @@ type Client struct {
 }
 
 func NewClient(svrAddr string) (*Client, error) {
+	return NewClientWithConfig(svrAddr, 0)
+}
+
+// NewClientWithConfig timeout is milliseconds
+func NewClientWithConfig(svrAddr string, timeout int) (*Client, error) {
 	conn, err := net.Dial("tcp", svrAddr)
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
-	c := &Client{svrAddr: svrAddr, Channel: NewChannel(conn)}
+	c := &Client{svrAddr: svrAddr, Channel: NewChannelWithConfig(conn.RemoteAddr().String(), timeout, conn)}
 	return c, nil
 }
 
