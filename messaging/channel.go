@@ -49,7 +49,7 @@ type MsgHandler func(*Channel, v1.Message) error
 func NewChannelWithConfig(name string, timeout int, conn net.Conn) *Channel {
 	c := &Channel{name: name, conn: conn, closing: make(chan struct{}, 1), pendings: make(map[uint32]*operation),
 		readMsg: make(chan *readMsg), sending: make(chan *operation), sent: make(chan *operation), readReady: make(chan struct{}),
-		timeout: time.Duration(timeout) * time.Microsecond, readErr: make(chan error)}
+		timeout: time.Duration(timeout) * time.Millisecond, readErr: make(chan error)}
 
 	go c.run()
 	<-c.readReady
@@ -159,9 +159,6 @@ type readMsg struct {
 }
 
 func (c *Channel) read() {
-	if c.timeout != 0 {
-		c.conn.SetReadDeadline(time.Now().Add(c.timeout))
-	}
 
 	c.readReady <- struct{}{}
 
@@ -174,6 +171,10 @@ func (c *Channel) read() {
 		}
 
 		fmt.Printf("read ...\n")
+
+		if c.timeout != 0 {
+			c.conn.SetReadDeadline(time.Now().Add(c.timeout))
+		}
 
 		msg, err := v1.ReadMessage(c.conn)
 

@@ -44,6 +44,9 @@ const (
 	TypeNameRmRegisterRequest  = "io.seata.protocol.protobuf.RegisterRMRequestProto"
 	TypeNameRmRegisterResponse = "io.seata.protocol.protobuf.RegisterRMResponseProto"
 
+	TypeNameTestTimeoutRequest  = "TypeNameTestTimeoutRequest"
+	TypeNameTestTimeoutResponse = "TypeNameTestTimeoutResponse"
+
 	StartLength = 16
 
 	MsgTypeRequestSync       = MessageType(0)
@@ -176,6 +179,12 @@ func EncodeMessage(msg *Message) ([]byte, error) {
 		typeName = TypeNameRmRegisterRequest
 	case *pb.RegisterRMResponseProto:
 		typeName = TypeNameRmRegisterResponse
+
+	case *pb.TestTimeoutRequestProto:
+		typeName = TypeNameTestTimeoutRequest
+	case *pb.TestTimeoutResponseProto:
+		typeName = TypeNameTestTimeoutResponse
+
 	default:
 		return nil, errors.New("message type unknown")
 	}
@@ -202,68 +211,6 @@ func EncodeMessage(msg *Message) ([]byte, error) {
 	return bs, nil
 }
 
-func EncodeProtoMessage(msgType MessageType, msg proto.Message) (uint32, []byte, error) {
-	buffer := new(bytes.Buffer)
-
-	buffer.Write(MagicCodeBytes)
-	buffer.WriteByte(Version)
-
-	// full length 4 bytes
-	buffer.Write(make([]byte, 4))
-	// head length 2 bytes
-	buffer.Write(make([]byte, 2))
-
-	// message type
-	buffer.WriteByte(byte(msgType))
-
-	// codec protobuf
-	buffer.WriteByte(0x2)
-
-	// compressor none
-	// todo:
-	buffer.WriteByte(0)
-
-	// request id 4 bytes
-	buf := make([]byte, 4)
-	reqId := nextRequestId()
-	binary.BigEndian.PutUint32(buf, reqId)
-	buffer.Write(buf)
-
-	// optional headmap
-	// todo:
-	var headMapLength uint16
-
-	var typeName string
-	switch msg.(type) {
-	case *pb.RegisterTMRequestProto:
-		typeName = TypeNameTmRegisterRequest
-	case *pb.RegisterRMRequestProto:
-		typeName = TypeNameRmRegisterRequest
-	default:
-		return 0, nil, errors.New("message type unknown")
-	}
-	typeNameLength := uint32(len(typeName))
-	binary.BigEndian.PutUint32(buf, typeNameLength)
-	buffer.Write(buf)
-	buffer.Write([]byte(typeName))
-
-	body, err := proto.Marshal(msg)
-	if err != nil {
-		return 0, nil, errors.WithStack(err)
-	}
-	buffer.Write(body)
-
-	bs := buffer.Bytes()
-
-	headLength := StartLength + headMapLength
-	binary.BigEndian.PutUint16(bs[7:9], headLength)
-
-	fullLength := uint32(headLength) + 4 + typeNameLength + uint32(len(body))
-	binary.BigEndian.PutUint32(bs[3:7], fullLength)
-
-	return reqId, bs, nil
-}
-
 func DecodePbMessage(buffer *bytes.Buffer) (msg proto.Message, err error) {
 	buf := make([]byte, 4)
 
@@ -281,6 +228,12 @@ func DecodePbMessage(buffer *bytes.Buffer) (msg proto.Message, err error) {
 		msg = &pb.RegisterRMRequestProto{}
 	case TypeNameRmRegisterResponse:
 		msg = &pb.RegisterRMResponseProto{}
+
+	case TypeNameTestTimeoutRequest:
+		msg = &pb.TestTimeoutRequestProto{}
+	case TypeNameTestTimeoutResponse:
+		msg = &pb.TestTimeoutResponseProto{}
+
 	default:
 		err = errors.New("response type name unknown")
 		return
