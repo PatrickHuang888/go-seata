@@ -44,8 +44,8 @@ const (
 	TypeNameRmRegisterRequest  = "io.seata.protocol.protobuf.RegisterRMRequestProto"
 	TypeNameRmRegisterResponse = "io.seata.protocol.protobuf.RegisterRMResponseProto"
 
-	TypeNameTestTimeoutRequest  = "TypeNameTestTimeoutRequest"
-	TypeNameTestTimeoutResponse = "TypeNameTestTimeoutResponse"
+	TypeNameTestRequest  = "TypeNameTestRequest"
+	TypeNameTestResponse = "TypeNameTestResponse"
 
 	StartLength = 16
 
@@ -180,10 +180,10 @@ func EncodeMessage(msg *Message) ([]byte, error) {
 	case *pb.RegisterRMResponseProto:
 		typeName = TypeNameRmRegisterResponse
 
-	case *pb.TestTimeoutRequestProto:
-		typeName = TypeNameTestTimeoutRequest
-	case *pb.TestTimeoutResponseProto:
-		typeName = TypeNameTestTimeoutResponse
+	case *pb.TestRequestProto:
+		typeName = TypeNameTestRequest
+	case *pb.TestResponseProto:
+		typeName = TypeNameTestResponse
 
 	default:
 		return nil, errors.New("message type unknown")
@@ -229,10 +229,10 @@ func DecodePbMessage(buffer *bytes.Buffer) (msg proto.Message, err error) {
 	case TypeNameRmRegisterResponse:
 		msg = &pb.RegisterRMResponseProto{}
 
-	case TypeNameTestTimeoutRequest:
-		msg = &pb.TestTimeoutRequestProto{}
-	case TypeNameTestTimeoutResponse:
-		msg = &pb.TestTimeoutResponseProto{}
+	case TypeNameTestRequest:
+		msg = &pb.TestRequestProto{}
+	case TypeNameTestResponse:
+		msg = &pb.TestResponseProto{}
 
 	default:
 		err = errors.New("response type name unknown")

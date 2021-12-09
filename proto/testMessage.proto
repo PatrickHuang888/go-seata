@@ -4,15 +4,17 @@ package io.seata.protocol.protobuf;
 
 import "abstractIdentifyRequest.proto";
 import "abstractIdentifyResponse.proto";
+import "messageType.proto";
 
 option go_package = "/pb";
 
 
-message TestTimeoutRequestProto {
+message TestRequestProto {
   AbstractIdentifyRequestProto abstractIdentifyRequest = 1;
-  uint32 sleepTime = 2;
+  TestMessageType type = 2;
+  string param1 = 3;
 }
 
-message TestTimeoutResponseProto {
+message TestResponseProto {
   AbstractIdentifyResponseProto abstractIdentifyResponse = 1;
 }

@@ -242,6 +242,7 @@ func (c *Channel) Call(req v1.Message) (rsp v1.Message, err error) {
 	return c.CallWithCtx(ctx, req)
 }
 
+// CallWithCtx if ctx set deadline, it will override the timeout of channel
 func (c *Channel) CallWithCtx(ctx context.Context, req v1.Message) (rsp v1.Message, err error) {
 	bs, err := v1.EncodeMessage(&req)
 	if err != nil {
@@ -299,7 +300,6 @@ func (c *Channel) send(ctx context.Context, op *operation, data []byte) error {
 	select {
 	case c.sending <- op:
 
-		// right now use ctx deadline first
 		deadline, ok := ctx.Deadline()
 		if ok {
 			c.conn.SetWriteDeadline(deadline)

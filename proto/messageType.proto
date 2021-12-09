@@ -122,3 +122,9 @@ enum MessageTypeProto {
     TYPE_UNDO_LOG_DELETE = 111;
 
 }
+
+enum TestMessageType {
+    Test = 0;
+    Timeout = 1;
+    Cancel = 2;
+}

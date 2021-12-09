@@ -5,6 +5,7 @@ import (
 	"github.com/PatrickHuang888/go-seata/logging"
 	v1 "github.com/PatrickHuang888/go-seata/messaging/v1"
 	"github.com/PatrickHuang888/go-seata/protocol/pb"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -43,11 +44,16 @@ func TestBasicSendAndReceive(t *testing.T) {
 }
 
 func handleTimeoutTest(c *Channel, msg v1.Message) error {
-	req, ok := msg.Msg.(*pb.TestTimeoutRequestProto)
-	if ok {
-		sleep := req.GetSleepTime()
+	req, ok := msg.Msg.(*pb.TestRequestProto)
+	if ok && req.GetType() == pb.TestMessageType_Timeout {
+		sleep, err := strconv.Atoi(req.GetParam1())
+		rsp := newTestResponse()
+		if err == nil {
+			rsp.Msg.(*pb.TestResponseProto).AbstractIdentifyResponse.AbstractResultMessage.ResultCode = pb.ResultCodeProto_Success
+		} else {
+			logging.Errorf("test message param error %s", err)
+		}
 		time.Sleep(time.Duration(sleep) * time.Second)
-		rsp := newTestTimeoutResponse()
 		if err := c.SendResponse(context.Background(), &rsp); err != nil {
 			logging.Debug(err)
 		}
@@ -73,6 +79,13 @@ func TestTimeout(t *testing.T) {
 	if err == nil {
 		t.Fail()
 	}
+	/*msg, ok := rsp.Msg.(*pb.TestResponseProto)
+	if !ok {
+		t.Fail()
+	}
+	if msg.AbstractIdentifyResponse.AbstractResultMessage.GetResultCode() != pb.ResultCodeProto_Success {
+		t.Fail()
+	}*/
 
 	c.Close()
 	s.Close()
@@ -80,10 +93,11 @@ func TestTimeout(t *testing.T) {
 
 func newTestTimeoutRequest() v1.Message {
 	return v1.Message{Id: 1, Tp: v1.MsgTypeRequestSync, Ser: v1.SerializerProtoBuf, Ver: v1.Version,
-		Msg: &pb.TestTimeoutRequestProto{SleepTime: 50_000}}
+		Msg: &pb.TestRequestProto{Type: pb.TestMessageType_Timeout, Param1: "50000"}}
 }
 
-func newTestTimeoutResponse() v1.Message {
+func newTestResponse() v1.Message {
 	return v1.Message{Id: 1, Tp: v1.MsgTypeResponse, Ser: v1.SerializerProtoBuf, Ver: v1.Version,
-		Msg: &pb.TestTimeoutResponseProto{}}
+		Msg: &pb.TestResponseProto{AbstractIdentifyResponse: &pb.AbstractIdentifyResponseProto{
+			AbstractResultMessage: &pb.AbstractResultMessageProto{}}}}
 }
