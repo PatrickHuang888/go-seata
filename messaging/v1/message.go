@@ -302,3 +302,14 @@ func ReadMessage(conn net.Conn) (msg *Message, err error) {
 	msg.Msg, err = DecodePbMessage(buffer)
 	return
 }
+
+func NewTestRequest() Message {
+	return Message{Id: nextRequestId(), Tp: MsgTypeRequestSync, Ser: SerializerProtoBuf, Ver: Version,
+		Msg: &pb.TestRequestProto{}}
+}
+
+func NewTestResponse(id uint32) Message {
+	return Message{Id: id, Tp: MsgTypeResponse, Ser: SerializerProtoBuf, Ver: Version,
+		Msg: &pb.TestResponseProto{AbstractIdentifyResponse: &pb.AbstractIdentifyResponseProto{
+			AbstractResultMessage: &pb.AbstractResultMessageProto{}}}}
+}

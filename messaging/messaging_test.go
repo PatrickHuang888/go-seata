@@ -7,6 +7,7 @@ import (
 	"github.com/PatrickHuang888/go-seata/protocol/pb"
 	"go.uber.org/atomic"
 	"strconv"
+	"sync"
 	"testing"
 	"time"
 )
@@ -46,18 +47,31 @@ func TestBasicSendAndReceive(t *testing.T) {
 
 func handleTest(c *Channel, msg v1.Message) error {
 	req, ok := msg.Msg.(*pb.TestRequestProto)
-	if ok && (req.GetType() == pb.TestMessageType_Timeout || req.GetType() == pb.TestMessageType_Deadline ||
-		req.GetType() == pb.TestMessageType_Cancel) {
-		sleep, err := strconv.Atoi(req.GetParam1())
-		rsp := newTestResponse()
-		if err == nil {
+	if ok {
+		switch req.GetType() {
+		case pb.TestMessageType_Timeout:
+			fallthrough
+		case pb.TestMessageType_Deadline:
+			fallthrough
+		case pb.TestMessageType_Cancel:
+			sleep, err := strconv.Atoi(req.GetParam1())
+			rsp := v1.NewTestResponse(1)
+			if err == nil {
+				rsp.Msg.(*pb.TestResponseProto).AbstractIdentifyResponse.AbstractResultMessage.ResultCode = pb.ResultCodeProto_Success
+			} else {
+				logging.Errorf("test message param error %s", err)
+			}
+			time.Sleep(time.Duration(sleep) * time.Second)
+			if err := c.SendResponse(context.Background(), &rsp); err != nil {
+				logging.Debug(err)
+			}
+
+		default:
+			rsp := v1.NewTestResponse(msg.Id)
 			rsp.Msg.(*pb.TestResponseProto).AbstractIdentifyResponse.AbstractResultMessage.ResultCode = pb.ResultCodeProto_Success
-		} else {
-			logging.Errorf("test message param error %s", err)
-		}
-		time.Sleep(time.Duration(sleep) * time.Second)
-		if err := c.SendResponse(context.Background(), &rsp); err != nil {
-			logging.Debug(err)
+			if err := c.SendResponse(context.Background(), &rsp); err != nil {
+				logging.Debug(err)
+			}
 		}
 	}
 	return nil
@@ -178,8 +192,48 @@ func newTestTimeoutRequest() v1.Message {
 		Msg: &pb.TestRequestProto{Type: pb.TestMessageType_Timeout, Param1: "50000"}}
 }
 
-func newTestResponse() v1.Message {
-	return v1.Message{Id: 1, Tp: v1.MsgTypeResponse, Ser: v1.SerializerProtoBuf, Ver: v1.Version,
-		Msg: &pb.TestResponseProto{AbstractIdentifyResponse: &pb.AbstractIdentifyResponseProto{
-			AbstractResultMessage: &pb.AbstractResultMessageProto{}}}}
+func TestConcurrent(t *testing.T) {
+	threads := 50
+	results := make([]bool, threads)
+
+	var waits sync.WaitGroup
+	waits.Add(threads)
+
+	s := NewServer("localhost:7788")
+	s.RegisterRequestHandler(handleTest)
+	go s.Serv()
+
+	<-s.ready
+
+	c, err := NewClient("localhost:7788")
+	if err != nil {
+		t.Error(err)
+	}
+
+	for i := 0; i < threads; i++ {
+		go func() {
+			req := v1.NewTestRequest()
+			rsp, err := c.Call(req)
+			if err != nil {
+				t.Fail()
+			}
+			if rsp.Msg.(*pb.TestResponseProto).AbstractIdentifyResponse.AbstractResultMessage.GetResultCode() !=
+				pb.ResultCodeProto_Success {
+				t.Fail()
+			}
+			results[rsp.Id-1] = true
+			waits.Done()
+		}()
+	}
+
+	waits.Wait()
+
+	for _, r := range results {
+		if !r {
+			t.Fail()
+		}
+	}
+
+	c.Close()
+	s.Close()
 }
