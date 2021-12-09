@@ -126,5 +126,5 @@ enum MessageTypeProto {
 enum TestMessageType {
     Test = 0;
     Timeout = 1;
-    Cancel = 2;
+    Deadline = 2;
 }

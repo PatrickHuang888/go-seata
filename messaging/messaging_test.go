@@ -5,6 +5,7 @@ import (
 	"github.com/PatrickHuang888/go-seata/logging"
 	v1 "github.com/PatrickHuang888/go-seata/messaging/v1"
 	"github.com/PatrickHuang888/go-seata/protocol/pb"
+	"go.uber.org/atomic"
 	"strconv"
 	"testing"
 	"time"
@@ -43,9 +44,9 @@ func TestBasicSendAndReceive(t *testing.T) {
 	time.Sleep(2 * time.Second)
 }
 
-func handleTimeoutTest(c *Channel, msg v1.Message) error {
+func handleTest(c *Channel, msg v1.Message) error {
 	req, ok := msg.Msg.(*pb.TestRequestProto)
-	if ok && req.GetType() == pb.TestMessageType_Timeout {
+	if ok && (req.GetType() == pb.TestMessageType_Timeout || req.GetType() == pb.TestMessageType_Deadline) {
 		sleep, err := strconv.Atoi(req.GetParam1())
 		rsp := newTestResponse()
 		if err == nil {
@@ -63,7 +64,7 @@ func handleTimeoutTest(c *Channel, msg v1.Message) error {
 
 func TestTimeout(t *testing.T) {
 	s := NewServer("localhost:7788")
-	s.RegisterRequestHandler(handleTimeoutTest)
+	s.RegisterRequestHandler(handleTest)
 	go s.Serv()
 
 	<-s.ready
@@ -89,6 +90,57 @@ func TestTimeout(t *testing.T) {
 
 	c.Close()
 	s.Close()
+}
+
+func TestDeadline(t *testing.T) {
+	s := NewServer("localhost:7788")
+	s.RegisterRequestHandler(handleTest)
+	go s.Serv()
+
+	<-s.ready
+
+	c, err := NewClient("localhost:7788")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := newTestDeadlineRequest()
+
+	ctx, _ := context.WithDeadline(context.Background(), time.Now().Add(500*time.Millisecond))
+
+	var result atomic.Bool
+
+	go func() {
+		_, err = c.CallWithCtx(ctx, req)
+		if err == nil {
+			t.Fail()
+		} else {
+			logging.Debug(err)
+		}
+		result.CAS(false, true)
+	}()
+
+	time.Sleep(1 * time.Second)
+
+	if !result.Load() {
+		t.Fail()
+	}
+
+	/*msg, ok := rsp.Msg.(*pb.TestResponseProto)
+	if !ok {
+		t.Fail()
+	}
+	if msg.AbstractIdentifyResponse.AbstractResultMessage.GetResultCode() != pb.ResultCodeProto_Success {
+		t.Fail()
+	}*/
+
+	c.Close()
+	s.Close()
+}
+
+func newTestDeadlineRequest() v1.Message {
+	return v1.Message{Id: 1, Tp: v1.MsgTypeRequestSync, Ser: v1.SerializerProtoBuf, Ver: v1.Version,
+		Msg: &pb.TestRequestProto{Type: pb.TestMessageType_Deadline, Param1: "50000"}}
 }
 
 func newTestTimeoutRequest() v1.Message {
