@@ -318,7 +318,7 @@ func (c *Channel) send(ctx context.Context, op *operation, data []byte) error {
 		}
 
 	case <-ctx.Done():
-		// when this happened ?
+		// cancel?
 		err := ctx.Err()
 		return err
 	}

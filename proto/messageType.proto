@@ -127,4 +127,5 @@ enum TestMessageType {
     Test = 0;
     Timeout = 1;
     Deadline = 2;
+    Cancel = 3;
 }

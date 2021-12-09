@@ -46,7 +46,8 @@ func TestBasicSendAndReceive(t *testing.T) {
 
 func handleTest(c *Channel, msg v1.Message) error {
 	req, ok := msg.Msg.(*pb.TestRequestProto)
-	if ok && (req.GetType() == pb.TestMessageType_Timeout || req.GetType() == pb.TestMessageType_Deadline) {
+	if ok && (req.GetType() == pb.TestMessageType_Timeout || req.GetType() == pb.TestMessageType_Deadline ||
+		req.GetType() == pb.TestMessageType_Cancel) {
 		sleep, err := strconv.Atoi(req.GetParam1())
 		rsp := newTestResponse()
 		if err == nil {
@@ -80,13 +81,6 @@ func TestTimeout(t *testing.T) {
 	if err == nil {
 		t.Fail()
 	}
-	/*msg, ok := rsp.Msg.(*pb.TestResponseProto)
-	if !ok {
-		t.Fail()
-	}
-	if msg.AbstractIdentifyResponse.AbstractResultMessage.GetResultCode() != pb.ResultCodeProto_Success {
-		t.Fail()
-	}*/
 
 	c.Close()
 	s.Close()
@@ -126,13 +120,49 @@ func TestDeadline(t *testing.T) {
 		t.Fail()
 	}
 
-	/*msg, ok := rsp.Msg.(*pb.TestResponseProto)
-	if !ok {
+	c.Close()
+	s.Close()
+}
+
+func TestCancel(t *testing.T) {
+	s := NewServer("localhost:7788")
+	s.RegisterRequestHandler(handleTest)
+	go s.Serv()
+
+	<-s.ready
+
+	c, err := NewClient("localhost:7788")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := newTestDeadlineRequest()
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	var result atomic.Bool
+	ready := make(chan struct{})
+	wait := make(chan struct{})
+
+	go func() {
+		ready <- struct{}{}
+		_, err = c.CallWithCtx(ctx, req)
+		if err == nil {
+			t.Fail()
+		} else {
+			logging.Debug(err)
+		}
+		result.CAS(false, true)
+		wait <- struct{}{}
+	}()
+
+	<-ready
+	cancel()
+	<-wait
+
+	if !result.Load() {
 		t.Fail()
 	}
-	if msg.AbstractIdentifyResponse.AbstractResultMessage.GetResultCode() != pb.ResultCodeProto_Success {
-		t.Fail()
-	}*/
 
 	c.Close()
 	s.Close()
