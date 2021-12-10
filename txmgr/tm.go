@@ -1,4 +1,4 @@
-package tm
+package txmgr
 
 import (
 	"github.com/PatrickHuang888/go-seata/messaging"
@@ -11,8 +11,12 @@ type TM struct {
 	c *messaging.Client
 }
 
-func NewTm(c *messaging.Client) *TM{
-	return &TM{c:c}
+func NewTm(svrAddr string) (*TM, error) {
+	c, err := messaging.NewClient(svrAddr)
+	if err != nil {
+		return nil, err
+	}
+	return &TM{c: c}, nil
 }
 
 func (tm *TM) Register() error {
@@ -34,3 +38,6 @@ func (tm *TM) Register() error {
 	return nil
 }
 
+func (tm *TM) Close() {
+	tm.c.Close()
+}

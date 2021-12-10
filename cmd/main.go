@@ -2,20 +2,20 @@ package main
 
 import (
 	"fmt"
-	"github.com/PatrickHuang888/go-seata/messaging"
-	"github.com/PatrickHuang888/go-seata/tm"
+	"github.com/PatrickHuang888/go-seata/txmgr"
 )
 
 func main() {
-	c, err := messaging.NewClient("localhost:8091")
+
+	tm, err := txmgr.NewTm("localhost:8091")
 	if err != nil {
 		fmt.Printf("%+v", err)
+		return
 	}
-
-	txmgr := tm.NewTm(c)
-	err = txmgr.Register()
+	err = tm.Register()
 	if err != nil {
 		fmt.Printf(" tm reg error %+v", err)
 	}
 
+	tm.Close()
 }
