@@ -13,9 +13,24 @@ import (
 
 const (
 	DefaultWriteIdle = 5 * time.Second
+
+	DefaultEnableHeartbeat = true
 )
 
+type ChannelConfig struct {
+	Timeout time.Duration
+
+	WriteIdle       time.Duration
+	EnableHeartBeat bool
+}
+
+func DefaultConfig() *ChannelConfig {
+	return &ChannelConfig{Timeout: 0, EnableHeartBeat: DefaultEnableHeartbeat, WriteIdle: DefaultWriteIdle}
+}
+
 type Channel struct {
+	config *ChannelConfig
+
 	name string
 
 	conn net.Conn
@@ -35,9 +50,6 @@ type Channel struct {
 	reqHandlers      []MsgHandler
 	asyncRspHandlers []MsgHandler
 
-	timeout time.Duration
-
-	writeIdle time.Duration
 	pingTimer *time.Timer
 	pingStop  chan struct{}
 
@@ -54,16 +66,18 @@ type CloseListener interface {
 
 type MsgHandler func(*Channel, v1.Message) error
 
-func NewChannelWithConfig(name string, timeout int, writeIdle time.Duration, conn net.Conn) *Channel {
+func NewChannelWithConfig(name string, conn net.Conn, config *ChannelConfig) *Channel {
 	c := &Channel{name: name, conn: conn, closing: make(chan struct{}, 1), pendings: make(map[uint32]*operation),
 		readMsg: make(chan *readMsg), sending: make(chan *operation), sent: make(chan *operation), readReady: make(chan struct{}),
-		timeout: time.Duration(timeout) * time.Millisecond, writeIdle: writeIdle, readErr: make(chan error)}
+		config: config, readErr: make(chan error)}
 
 	go c.run()
 
-	c.pingStop = make(chan struct{})
-	c.pingTimer = time.NewTimer(c.writeIdle)
-	go c.ping()
+	if c.config.EnableHeartBeat {
+		c.pingStop = make(chan struct{})
+		c.pingTimer = time.NewTimer(c.config.WriteIdle)
+		go c.ping()
+	}
 
 	<-c.readReady
 
@@ -71,7 +85,7 @@ func NewChannelWithConfig(name string, timeout int, writeIdle time.Duration, con
 }
 
 func NewChannel(conn net.Conn) *Channel {
-	return NewChannelWithConfig(conn.RemoteAddr().String(), 0, DefaultWriteIdle, conn)
+	return NewChannelWithConfig(conn.RemoteAddr().String(), conn, DefaultConfig())
 }
 
 func (c *Channel) ping() {
@@ -102,7 +116,9 @@ func (c *Channel) run() {
 			if !c.doClosing.Load() {
 				c.doClosing.CAS(false, true)
 
-				c.pingStop <- struct{}{}
+				if c.config.EnableHeartBeat {
+					c.pingStop <- struct{}{}
+				}
 
 				fmt.Println("conn close")
 				if err := c.conn.Close(); err != nil {
@@ -205,8 +221,8 @@ func (c *Channel) read() {
 
 		fmt.Printf("read ...\n")
 
-		if c.timeout != 0 {
-			c.conn.SetReadDeadline(time.Now().Add(c.timeout))
+		if c.config.Timeout != 0 {
+			c.conn.SetReadDeadline(time.Now().Add(c.config.Timeout))
 		}
 
 		msg, err := v1.ReadMessage(c.conn)
@@ -337,8 +353,8 @@ func (c *Channel) send(ctx context.Context, op *operation, data []byte) error {
 		if ok {
 			c.conn.SetWriteDeadline(deadline)
 		} else {
-			if c.timeout != 0 {
-				deadline = time.Now().Add(c.timeout)
+			if c.config.Timeout != 0 {
+				deadline = time.Now().Add(c.config.Timeout)
 				c.conn.SetWriteDeadline(deadline)
 			}
 		}
@@ -350,7 +366,7 @@ func (c *Channel) send(ctx context.Context, op *operation, data []byte) error {
 			return err
 		}
 
-		c.pingTimer.Reset(c.writeIdle)
+		c.pingTimer.Reset(c.config.WriteIdle)
 
 	case <-ctx.Done():
 		fmt.Println("send done")

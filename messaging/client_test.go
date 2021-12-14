@@ -95,7 +95,9 @@ func TestAsyncCallToJava(t *testing.T) {
 func TestPingToJava(t *testing.T) {
 	var result bool
 
-	c, err := NewClientWithConfig("localhost:8091", 0, 1*time.Second)
+	config := DefaultConfig()
+	config.WriteIdle = 1 * time.Second
+	c, err := NewClientWithConfig("localhost:8091", config)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,7 +110,7 @@ func TestPingToJava(t *testing.T) {
 		return nil
 	})
 
-	<-time.After(c.writeIdle * 3) // read idle
+	<-time.After(c.config.WriteIdle * 3) // read idle
 
 	if !result {
 		t.Fatal("no heartbeat response")
