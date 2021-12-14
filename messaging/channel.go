@@ -11,7 +11,9 @@ import (
 	"time"
 )
 
-const ()
+const (
+	DefaultWriteIdle = 5 * time.Second
+)
 
 type Channel struct {
 	name string
@@ -35,6 +37,12 @@ type Channel struct {
 
 	timeout time.Duration
 
+	writeIdle time.Duration
+	pingTimer *time.Timer
+	pingStop  chan struct{}
+
+	readIdle time.Duration
+
 	closeListener CloseListener
 
 	readErr chan error // errors from read
@@ -46,19 +54,41 @@ type CloseListener interface {
 
 type MsgHandler func(*Channel, v1.Message) error
 
-func NewChannelWithConfig(name string, timeout int, conn net.Conn) *Channel {
+func NewChannelWithConfig(name string, timeout int, writeIdle time.Duration, conn net.Conn) *Channel {
 	c := &Channel{name: name, conn: conn, closing: make(chan struct{}, 1), pendings: make(map[uint32]*operation),
 		readMsg: make(chan *readMsg), sending: make(chan *operation), sent: make(chan *operation), readReady: make(chan struct{}),
-		timeout: time.Duration(timeout) * time.Millisecond, readErr: make(chan error)}
+		timeout: time.Duration(timeout) * time.Millisecond, writeIdle: writeIdle, readErr: make(chan error)}
 
 	go c.run()
+
+	c.pingStop = make(chan struct{})
+	c.pingTimer = time.NewTimer(c.writeIdle)
+	go c.ping()
+
 	<-c.readReady
 
 	return c
 }
 
 func NewChannel(conn net.Conn) *Channel {
-	return NewChannelWithConfig(conn.RemoteAddr().String(), 0, conn)
+	return NewChannelWithConfig(conn.RemoteAddr().String(), 0, DefaultWriteIdle, conn)
+}
+
+func (c *Channel) ping() {
+	for {
+		select {
+		case <-c.pingTimer.C:
+			ping := v1.NewHeartbeatRequest()
+			if err := c.AsyncCall(ping); err != nil {
+				logging.Errorf("write ping error %+v", err)
+				c.Close()
+			}
+
+		case <-c.pingStop:
+			c.pingTimer.Stop()
+			return
+		}
+	}
 }
 
 func (c *Channel) run() {
@@ -71,6 +101,8 @@ func (c *Channel) run() {
 
 			if !c.doClosing.Load() {
 				c.doClosing.CAS(false, true)
+
+				c.pingStop <- struct{}{}
 
 				fmt.Println("conn close")
 				if err := c.conn.Close(); err != nil {
@@ -100,6 +132,8 @@ func (c *Channel) run() {
 			fmt.Printf("read message type %s\n", read.msg.Tp.String())
 
 			switch read.msg.Tp {
+			case v1.MsgTypeHeartbeatResponse:
+				fallthrough
 			case v1.MsgTypeResponse:
 				pending := c.pendings[read.msg.Id]
 				if pending == nil {
@@ -107,7 +141,7 @@ func (c *Channel) run() {
 				}
 				delete(c.pendings, read.msg.Id)
 
-				if pending.reqTp == v1.MsgTypeRequestOneway {
+				if pending.reqTp == v1.MsgTypeRequestOneway || pending.reqTp == v1.MsgTypeHeartbeatRequest {
 					if read.err == nil {
 						for _, handle := range c.asyncRspHandlers {
 							if err := handle(c, *read.msg); err != nil {
@@ -134,8 +168,7 @@ func (c *Channel) run() {
 				}
 
 			case v1.MsgTypeHeartbeatRequest:
-
-			case v1.MsgTypeHeartbeatResponse:
+				fmt.Println("how to handle message heartbeat request")
 
 			default:
 				logging.Warningf("message type unknown %d", read.msg.Tp)
@@ -261,13 +294,13 @@ func (c *Channel) CallWithCtx(ctx context.Context, req v1.Message) (rsp v1.Messa
 	return
 }
 
-func (c *Channel) AsyncCall(msg *v1.Message) error {
+func (c *Channel) AsyncCall(msg v1.Message) error {
 	ctx := context.Background()
 	return c.Async(ctx, msg)
 }
 
-func (c *Channel) Async(ctx context.Context, msg *v1.Message) error {
-	bs, err := v1.EncodeMessage(msg)
+func (c *Channel) Async(ctx context.Context, msg v1.Message) error {
+	data, err := v1.EncodeMessage(&msg)
 	if err != nil {
 		return err
 	}
@@ -276,7 +309,7 @@ func (c *Channel) Async(ctx context.Context, msg *v1.Message) error {
 
 	fmt.Printf("async sending %d \n", msg.Id)
 
-	return c.send(ctx, op, bs)
+	return c.send(ctx, op, data)
 }
 
 func (c *Channel) SendResponse(ctx context.Context, msg *v1.Message) error {
@@ -317,7 +350,10 @@ func (c *Channel) send(ctx context.Context, op *operation, data []byte) error {
 			return err
 		}
 
+		c.pingTimer.Reset(c.writeIdle)
+
 	case <-ctx.Done():
+		fmt.Println("send done")
 		// cancel?
 		err := ctx.Err()
 		return err

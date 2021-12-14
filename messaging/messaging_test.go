@@ -84,7 +84,7 @@ func TestTimeout(t *testing.T) {
 
 	<-s.ready
 
-	c, err := NewClientWithConfig("localhost:7788", 500)
+	c, err := NewClientWithConfig("localhost:7788", 500, DefaultWriteIdle)
 	if err != nil {
 		t.Fatal(err)
 	}

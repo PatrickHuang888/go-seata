@@ -105,8 +105,8 @@ func newPbRmRegRequest(appId string, txGroup string, resourceIds string) *pb.Reg
 		Version:         SeataVersion, ApplicationId: appId, TransactionServiceGroup: txGroup}}
 }
 
-func NewRmRegRequest(appId string, txGroup string, resourceIds string) *Message {
-	msg := &Message{Id: nextRequestId()}
+func NewRmRegRequest(appId string, txGroup string, resourceIds string) Message {
+	msg := Message{Id: nextRequestId()}
 	msg.Tp = MsgTypeRequestOneway
 	msg.Ver = Version
 	msg.Msg = newPbRmRegRequest(appId, txGroup, resourceIds)
@@ -170,35 +170,41 @@ func EncodeMessage(msg *Message) ([]byte, error) {
 	var headMapLength uint16
 
 	var typeName string
-	switch msg.Msg.(type) {
-	case *pb.RegisterTMRequestProto:
-		typeName = TypeNameTmRegisterRequest
-	case *pb.RegisterTMResponseProto:
-		typeName = TypeNameTmRegisterResponse
-	case *pb.RegisterRMRequestProto:
-		typeName = TypeNameRmRegisterRequest
-	case *pb.RegisterRMResponseProto:
-		typeName = TypeNameRmRegisterResponse
+	var typeNameLength uint32
+	var body []byte
+	var err error
 
-	case *pb.TestRequestProto:
-		typeName = TypeNameTestRequest
-	case *pb.TestResponseProto:
-		typeName = TypeNameTestResponse
+	if msg.Tp != MsgTypeHeartbeatRequest && msg.Tp != MsgTypeHeartbeatResponse {
+		switch msg.Msg.(type) {
+		case *pb.RegisterTMRequestProto:
+			typeName = TypeNameTmRegisterRequest
+		case *pb.RegisterTMResponseProto:
+			typeName = TypeNameTmRegisterResponse
+		case *pb.RegisterRMRequestProto:
+			typeName = TypeNameRmRegisterRequest
+		case *pb.RegisterRMResponseProto:
+			typeName = TypeNameRmRegisterResponse
 
-	default:
-		return nil, errors.New("message type unknown")
+		case *pb.TestRequestProto:
+			typeName = TypeNameTestRequest
+		case *pb.TestResponseProto:
+			typeName = TypeNameTestResponse
+
+		default:
+			return nil, errors.New("message type unknown")
+		}
+
+		typeNameLength = uint32(len(typeName))
+		binary.BigEndian.PutUint32(buf, typeNameLength)
+		buffer.Write(buf)
+		buffer.Write([]byte(typeName))
+
+		body, err = proto.Marshal(msg.Msg)
+		if err != nil {
+			return nil, errors.WithStack(err)
+		}
+		buffer.Write(body)
 	}
-
-	typeNameLength := uint32(len(typeName))
-	binary.BigEndian.PutUint32(buf, typeNameLength)
-	buffer.Write(buf)
-	buffer.Write([]byte(typeName))
-
-	body, err := proto.Marshal(msg.Msg)
-	if err != nil {
-		return nil, errors.WithStack(err)
-	}
-	buffer.Write(body)
 
 	bs := buffer.Bytes()
 
@@ -298,8 +304,10 @@ func ReadMessage(conn net.Conn) (msg *Message, err error) {
 		return
 	}
 
-	buffer := bytes.NewBuffer(buf)
-	msg.Msg, err = DecodePbMessage(buffer)
+	if msg.Tp != MsgTypeHeartbeatRequest && msg.Tp != MsgTypeHeartbeatResponse {
+		buffer := bytes.NewBuffer(buf)
+		msg.Msg, err = DecodePbMessage(buffer)
+	}
 	return
 }
 
@@ -312,4 +320,12 @@ func NewTestResponse(id uint32) Message {
 	return Message{Id: id, Tp: MsgTypeResponse, Ser: SerializerProtoBuf, Ver: Version,
 		Msg: &pb.TestResponseProto{AbstractIdentifyResponse: &pb.AbstractIdentifyResponseProto{
 			AbstractResultMessage: &pb.AbstractResultMessageProto{}}}}
+}
+
+func NewHeartbeatRequest() Message {
+	return Message{Id: nextRequestId(), Tp: MsgTypeHeartbeatRequest, Ser: SerializerProtoBuf, Ver: Version}
+}
+
+func NewHeartbeatResponse(id uint32) Message {
+	return Message{Id: id, Tp: MsgTypeHeartbeatResponse, Ser: SerializerProtoBuf, Ver: Version}
 }

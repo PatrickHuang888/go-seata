@@ -6,6 +6,7 @@ import (
 	"github.com/PatrickHuang888/go-seata/protocol/pb"
 	"sync"
 	"testing"
+	"time"
 )
 
 // should start io.seata.core.rpc.netty.v1.ProtocolV1Server first
@@ -88,4 +89,31 @@ func TestAsyncCallToJava(t *testing.T) {
 	fmt.Println("close client")
 	c.Close()
 	//time.Sleep(5 * time.Second)
+}
+
+// start seata server first
+func TestPingToJava(t *testing.T) {
+	var result bool
+
+	c, err := NewClientWithConfig("localhost:8091", 0, 1*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	c.RegisterAsyncRspHandler(func(c *Channel, msg v1.Message) error {
+		if msg.Tp == v1.MsgTypeHeartbeatResponse {
+			fmt.Println("get the heartbeat response")
+			result = true
+		}
+		return nil
+	})
+
+	<-time.After(c.writeIdle * 3) // read idle
+
+	if !result {
+		t.Fatal("no heartbeat response")
+	}
+
+	fmt.Println("close client")
+	c.Close()
 }
