@@ -5,6 +5,7 @@ import (
 	v1 "github.com/PatrickHuang888/go-seata/messaging/v1"
 	"github.com/PatrickHuang888/go-seata/protocol/pb"
 	"github.com/pkg/errors"
+	"time"
 )
 
 type TM struct {
@@ -36,6 +37,52 @@ func (tm *TM) Register() error {
 	}
 
 	return nil
+}
+
+func (tm *TM) Begin(name string, timeout time.Duration) (xid string, err error) {
+	begin := v1.NewGlobalBeginRequest(name, int32(timeout.Milliseconds()))
+	rsp, err := tm.c.Call(begin)
+	if err != nil {
+		return "", err
+	}
+	result, ok := rsp.Msg.(*pb.GlobalBeginResponseProto)
+	if ok {
+		if result.AbstractTransactionResponse.AbstractResultMessage.ResultCode == pb.ResultCodeProto_Success {
+			return result.Xid, nil
+		} else {
+			return "", errors.New("begin failed")
+		}
+	} else {
+		return "", errors.New("response type error")
+	}
+}
+
+func (tm *TM) Commit(xid string) (pb.GlobalStatusProto, error) {
+	commit := v1.NewGlobalCommitRequest(xid)
+	rsp, err := tm.c.Call(commit)
+	if err != nil {
+		return pb.GlobalStatusProto_UnKnown, err
+	}
+	commitRsp, ok := rsp.Msg.(*pb.GlobalCommitResponseProto)
+	if ok {
+		return commitRsp.AbstractGlobalEndResponse.GlobalStatus, nil
+	} else {
+		return pb.GlobalStatusProto_UnKnown, errors.New("response type error")
+	}
+}
+
+func (tm *TM) Rollback(xid string) (pb.GlobalStatusProto, error) {
+	rollback := v1.NewGlobalRollbackRequest(xid)
+	rsp, err := tm.c.Call(rollback)
+	if err != nil {
+		return pb.GlobalStatusProto_UnKnown, err
+	}
+	commitRsp, ok := rsp.Msg.(*pb.GlobalRollbackResponseProto)
+	if ok {
+		return commitRsp.AbstractGlobalEndResponse.GlobalStatus, nil
+	} else {
+		return pb.GlobalStatusProto_UnKnown, errors.New("response type error")
+	}
 }
 
 func (tm *TM) Close() {

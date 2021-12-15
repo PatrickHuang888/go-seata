@@ -44,6 +44,13 @@ const (
 	TypeNameRmRegisterRequest  = "io.seata.protocol.protobuf.RegisterRMRequestProto"
 	TypeNameRmRegisterResponse = "io.seata.protocol.protobuf.RegisterRMResponseProto"
 
+	TypeNameGlobalBeginRequest     = "io.seata.protocol.protobuf.GlobalBeginRequestProto"
+	TypeNameGlobalBeginResponse    = "io.seata.protocol.protobuf.GlobalBeginResponseProto"
+	TypeNameGlobalCommitRequest    = "io.seata.protocol.protobuf.GlobalCommitRequestProto"
+	TypeNameGlobalCommitResponse   = "io.seata.protocol.protobuf.GlobalCommitResponseProto"
+	TypeNameGlobalRollbackRequest  = "io.seata.protocol.protobuf.GlobalRollbackRequestProto"
+	TypeNameGlobalRollbackResponse = "io.seata.protocol.protobuf.GlobalRollbackResponseProto"
+
 	TypeNameTestRequest  = "TypeNameTestRequest"
 	TypeNameTestResponse = "TypeNameTestResponse"
 
@@ -185,6 +192,19 @@ func EncodeMessage(msg *Message) ([]byte, error) {
 		case *pb.RegisterRMResponseProto:
 			typeName = TypeNameRmRegisterResponse
 
+		case *pb.GlobalBeginRequestProto:
+			typeName = TypeNameGlobalBeginRequest
+		case *pb.GlobalBeginResponseProto:
+			typeName = TypeNameGlobalBeginResponse
+		case *pb.GlobalCommitRequestProto:
+			typeName = TypeNameGlobalCommitRequest
+		case *pb.GlobalCommitResponseProto:
+			typeName = TypeNameGlobalCommitResponse
+		case *pb.GlobalRollbackRequestProto:
+			typeName = TypeNameGlobalRollbackRequest
+		case *pb.GlobalRollbackResponseProto:
+			typeName = TypeNameGlobalRollbackResponse
+
 		case *pb.TestRequestProto:
 			typeName = TypeNameTestRequest
 		case *pb.TestResponseProto:
@@ -234,6 +254,19 @@ func DecodePbMessage(buffer *bytes.Buffer) (msg proto.Message, err error) {
 		msg = &pb.RegisterRMRequestProto{}
 	case TypeNameRmRegisterResponse:
 		msg = &pb.RegisterRMResponseProto{}
+
+	case TypeNameGlobalBeginRequest:
+		msg = &pb.GlobalBeginRequestProto{}
+	case TypeNameGlobalBeginResponse:
+		msg = &pb.GlobalBeginResponseProto{}
+	case TypeNameGlobalCommitRequest:
+		msg = &pb.GlobalCommitRequestProto{}
+	case TypeNameGlobalCommitResponse:
+		msg = &pb.GlobalCommitResponseProto{}
+	case TypeNameGlobalRollbackRequest:
+		msg = &pb.GlobalRollbackResponseProto{}
+	case TypeNameGlobalRollbackResponse:
+		msg = &pb.GlobalRollbackResponseProto{}
 
 	case TypeNameTestRequest:
 		msg = &pb.TestRequestProto{}
@@ -328,4 +361,21 @@ func NewHeartbeatRequest() Message {
 
 func NewHeartbeatResponse(id uint32) Message {
 	return Message{Id: id, Tp: MsgTypeHeartbeatResponse, Ser: SerializerProtoBuf, Ver: Version}
+}
+
+func NewGlobalBeginRequest(name string, timeout int32) Message {
+	return Message{Id: nextRequestId(), Tp: MsgTypeRequestSync, Ser: SerializerProtoBuf, Ver: Version,
+		Msg: &pb.GlobalBeginRequestProto{Timeout: timeout, TransactionName: name,
+			AbstractTransactionRequest: &pb.AbstractTransactionRequestProto{
+				AbstractMessage: &pb.AbstractMessageProto{MessageType: pb.MessageTypeProto_TYPE_GLOBAL_BEGIN}}}}
+}
+
+func NewGlobalCommitRequest(xid string) Message {
+	return Message{Id: nextRequestId(), Tp: MsgTypeRequestSync, Ser: SerializerProtoBuf, Ver: Version,
+		Msg: &pb.GlobalCommitRequestProto{AbstractGlobalEndRequest: &pb.AbstractGlobalEndRequestProto{Xid: xid}}}
+}
+
+func NewGlobalRollbackRequest(xid string) Message {
+	return Message{Id: nextRequestId(), Tp: MsgTypeRequestSync, Ser: SerializerProtoBuf, Ver: Version,
+		Msg: &pb.GlobalRollbackRequestProto{AbstractGlobalEndRequest: &pb.AbstractGlobalEndRequestProto{Xid: xid}}}
 }
