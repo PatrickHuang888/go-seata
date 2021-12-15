@@ -20,9 +20,8 @@ func NewTm(svrAddr string) (*TM, error) {
 	return &TM{c: c}, nil
 }
 
-func (tm *TM) Register() error {
-	msg := v1.NewTmRegRequest("go-client", "go-client-txgroup")
-
+func (tm *TM) Register(appId string, txGroup string) error {
+	msg := v1.NewTmRegRequest(appId, txGroup)
 	rsp, err := tm.c.Call(msg)
 	if err != nil {
 		return errors.WithStack(err)
@@ -33,9 +32,8 @@ func (tm *TM) Register() error {
 		return errors.New("not tm reg response")
 	}
 	if tmRegRsp.AbstractIdentifyResponse.AbstractResultMessage.GetResultCode() != pb.ResultCodeProto_Success {
-		return errors.New("tm register failed")
+		return errors.New(tmRegRsp.AbstractIdentifyResponse.AbstractResultMessage.Msg)
 	}
-
 	return nil
 }
 
@@ -46,15 +44,13 @@ func (tm *TM) Begin(name string, timeout time.Duration) (xid string, err error) 
 		return "", err
 	}
 	result, ok := rsp.Msg.(*pb.GlobalBeginResponseProto)
-	if ok {
-		if result.AbstractTransactionResponse.AbstractResultMessage.ResultCode == pb.ResultCodeProto_Success {
-			return result.Xid, nil
-		} else {
-			return "", errors.New("begin failed")
-		}
-	} else {
+	if !ok {
 		return "", errors.New("response type error")
 	}
+	if result.AbstractTransactionResponse.AbstractResultMessage.ResultCode != pb.ResultCodeProto_Success {
+		return result.Xid, errors.New(result.AbstractTransactionResponse.AbstractResultMessage.Msg)
+	}
+	return result.Xid, nil
 }
 
 func (tm *TM) Commit(xid string) (pb.GlobalStatusProto, error) {
@@ -64,11 +60,13 @@ func (tm *TM) Commit(xid string) (pb.GlobalStatusProto, error) {
 		return pb.GlobalStatusProto_UnKnown, err
 	}
 	commitRsp, ok := rsp.Msg.(*pb.GlobalCommitResponseProto)
-	if ok {
-		return commitRsp.AbstractGlobalEndResponse.GlobalStatus, nil
-	} else {
+	if !ok {
 		return pb.GlobalStatusProto_UnKnown, errors.New("response type error")
 	}
+	if commitRsp.AbstractGlobalEndResponse.AbstractTransactionResponse.AbstractResultMessage.ResultCode != pb.ResultCodeProto_Success {
+		return commitRsp.AbstractGlobalEndResponse.GlobalStatus, errors.New(commitRsp.AbstractGlobalEndResponse.AbstractTransactionResponse.AbstractResultMessage.Msg)
+	}
+	return commitRsp.AbstractGlobalEndResponse.GlobalStatus, nil
 }
 
 func (tm *TM) Rollback(xid string) (pb.GlobalStatusProto, error) {
@@ -77,12 +75,14 @@ func (tm *TM) Rollback(xid string) (pb.GlobalStatusProto, error) {
 	if err != nil {
 		return pb.GlobalStatusProto_UnKnown, err
 	}
-	commitRsp, ok := rsp.Msg.(*pb.GlobalRollbackResponseProto)
-	if ok {
-		return commitRsp.AbstractGlobalEndResponse.GlobalStatus, nil
-	} else {
+	rollbackRsp, ok := rsp.Msg.(*pb.GlobalRollbackResponseProto)
+	if !ok {
 		return pb.GlobalStatusProto_UnKnown, errors.New("response type error")
 	}
+	if rollbackRsp.AbstractGlobalEndResponse.AbstractTransactionResponse.AbstractResultMessage.ResultCode != pb.ResultCodeProto_Success {
+		return rollbackRsp.AbstractGlobalEndResponse.GlobalStatus, errors.New(rollbackRsp.AbstractGlobalEndResponse.AbstractTransactionResponse.AbstractResultMessage.Msg)
+	}
+	return rollbackRsp.AbstractGlobalEndResponse.GlobalStatus, nil
 }
 
 func (tm *TM) Close() {
