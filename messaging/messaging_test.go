@@ -86,7 +86,7 @@ func TestTimeout(t *testing.T) {
 
 	config := DefaultConfig()
 	config.Timeout = 500 * time.Millisecond
-	c, err := NewClientWithConfig("localhost:7788", config)
+	c, err := NewClientWithConfig("localhost:7788", "test-app", "tx-group", config)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -10,21 +10,32 @@ var (
 )
 
 type Client struct {
-	svrAddr string
+	appId   string
+	txGroup string
+
+	tcAddr string
 	*Channel
 }
 
-func NewClient(svrAddr string) (*Client, error) {
-	return NewClientWithConfig(svrAddr, DefaultConfig())
+func NewClient(tcAddr string) (*Client, error) {
+	return NewClientWithConfig(tcAddr, "", "", DefaultConfig())
 }
 
-func NewClientWithConfig(svrAddr string, config *ChannelConfig) (*Client, error) {
-	conn, err := net.Dial("tcp", svrAddr)
+func NewClientWithConfig(tcAddr string, appId string, txGroup string, config *ChannelConfig) (*Client, error) {
+	conn, err := net.Dial("tcp", tcAddr)
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
-	c := &Client{svrAddr: svrAddr, Channel: NewChannelWithConfig(conn.RemoteAddr().String(), conn, config)}
+	c := &Client{tcAddr: tcAddr, Channel: NewChannelWithConfig(conn.RemoteAddr().String(), conn, config)}
 	return c, nil
+}
+
+func (c Client) AppId() string {
+	return c.appId
+}
+
+func (c Client) TxGroup() string {
+	return c.txGroup
 }
 
 func (c *Client) Close() {

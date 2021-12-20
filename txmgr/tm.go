@@ -21,8 +21,9 @@ func NewTm(svrAddr string) (*TM, error) {
 }
 
 func (tm *TM) Register(appId string, txGroup string) error {
-	msg := v1.NewTmRegRequest(appId, txGroup)
-	rsp, err := tm.c.Call(msg)
+	req := v1.NewSyncRequestMessage()
+	req.Msg = v1.NewTmRegisterRequest(appId, txGroup)
+	rsp, err := tm.c.Call(req)
 	if err != nil {
 		return errors.WithStack(err)
 	}
@@ -34,12 +35,16 @@ func (tm *TM) Register(appId string, txGroup string) error {
 	if tmRegRsp.AbstractIdentifyResponse.AbstractResultMessage.GetResultCode() != pb.ResultCodeProto_Success {
 		return errors.New(tmRegRsp.AbstractIdentifyResponse.AbstractResultMessage.Msg)
 	}
+
+	// todo: on register success
+
 	return nil
 }
 
 func (tm *TM) Begin(name string, timeout time.Duration) (xid string, err error) {
-	begin := v1.NewGlobalBeginRequest(name, int32(timeout.Milliseconds()))
-	rsp, err := tm.c.Call(begin)
+	req := v1.NewSyncRequestMessage()
+	req.Msg = v1.NewGlobalBeginRequest(name, int32(timeout.Milliseconds()))
+	rsp, err := tm.c.Call(req)
 	if err != nil {
 		return "", err
 	}
@@ -54,8 +59,9 @@ func (tm *TM) Begin(name string, timeout time.Duration) (xid string, err error) 
 }
 
 func (tm *TM) Commit(xid string) (pb.GlobalStatusProto, error) {
-	commit := v1.NewGlobalCommitRequest(xid)
-	rsp, err := tm.c.Call(commit)
+	req := v1.NewSyncRequestMessage()
+	req.Msg = v1.NewGlobalCommitRequest(xid)
+	rsp, err := tm.c.Call(req)
 	if err != nil {
 		return pb.GlobalStatusProto_UnKnown, err
 	}
@@ -70,8 +76,9 @@ func (tm *TM) Commit(xid string) (pb.GlobalStatusProto, error) {
 }
 
 func (tm *TM) Rollback(xid string) (pb.GlobalStatusProto, error) {
-	rollback := v1.NewGlobalRollbackRequest(xid)
-	rsp, err := tm.c.Call(rollback)
+	req := v1.NewSyncRequestMessage()
+	req.Msg = v1.NewGlobalRollbackRequest(xid)
+	rsp, err := tm.c.Call(req)
 	if err != nil {
 		return pb.GlobalStatusProto_UnKnown, err
 	}

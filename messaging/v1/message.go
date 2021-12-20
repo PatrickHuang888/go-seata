@@ -51,6 +51,13 @@ const (
 	TypeNameGlobalRollbackRequest  = "io.seata.protocol.protobuf.GlobalRollbackRequestProto"
 	TypeNameGlobalRollbackResponse = "io.seata.protocol.protobuf.GlobalRollbackResponseProto"
 
+	TypeNameBranchRegisterRequest  = "io.seata.protocol.protobuf.BranchRegisterRequestProto"
+	TypeNameBranchRegisterResponse = "io.seata.protocol.protobuf.BranchRegisterResponseProto"
+	TypeNameBranchCommitRequest    = "io.seata.protocol.protobuf.BranchCommitRequestProto"
+	TypeNameBranchCommitResponse   = "io.seata.protocol.protobuf.BranchCommitResponseProto"
+	TypeNameBranchRollbackRequest  = "io.seata.protocol.protobuf.BranchRollbackRequestProto"
+	TypeNameBranchRollbackResponse = "io.seata.protocol.protobuf.BranchRollbackResponseProto"
+
 	TypeNameTestRequest  = "TypeNameTestRequest"
 	TypeNameTestResponse = "TypeNameTestResponse"
 
@@ -106,44 +113,22 @@ func (m Message) String() string {
 	return fmt.Sprintf("Message id %d, tp %s, msg %s", m.Id, m.Tp.String(), m.Msg)
 }
 
-func newPbRmRegRequest(appId string, txGroup string, resourceIds string) *pb.RegisterRMRequestProto {
+func NewResourceRegisterRequest(appId string, txGroup string, resourceIds string) *pb.RegisterRMRequestProto {
 	return &pb.RegisterRMRequestProto{ResourceIds: resourceIds, AbstractIdentifyRequest: &pb.AbstractIdentifyRequestProto{
 		AbstractMessage: &pb.AbstractMessageProto{MessageType: pb.MessageTypeProto_TYPE_REG_RM},
 		Version:         SeataVersion, ApplicationId: appId, TransactionServiceGroup: txGroup}}
 }
 
-func NewRmRegRequest(appId string, txGroup string, resourceIds string) Message {
-	msg := Message{Id: nextRequestId()}
-	msg.Tp = MsgTypeRequestOneway
-	msg.Ver = Version
-	msg.Msg = newPbRmRegRequest(appId, txGroup, resourceIds)
-	return msg
-}
-
-func newPbTmRegRequest(appId string, txGroup string) *pb.RegisterTMRequestProto {
+func NewTmRegisterRequest(appId string, txGroup string) *pb.RegisterTMRequestProto {
 	return &pb.RegisterTMRequestProto{AbstractIdentifyRequest: &pb.AbstractIdentifyRequestProto{
 		AbstractMessage: &pb.AbstractMessageProto{MessageType: pb.MessageTypeProto_TYPE_REG_CLT},
 		Version:         SeataVersion, ApplicationId: appId, TransactionServiceGroup: txGroup}}
 }
 
-func NewTmRegRequest(appId string, txGroup string) Message {
-	msg := Message{Id: nextRequestId()}
-	msg.Tp = MsgTypeRequestSync
-	msg.Ser = SerializerProtoBuf
-	msg.Ver = Version
-	msg.Msg = newPbTmRegRequest(appId, txGroup)
-	return msg
-}
-
-func NewTmRegResponse(id uint32) *Message {
-	msg := &Message{}
-	msg.Id = id
-	msg.Tp = MsgTypeResponse
-	msg.Ser = SerializerProtoBuf
-	msg.Ver = Version
-	msg.Msg = &pb.RegisterTMResponseProto{AbstractIdentifyResponse: &pb.AbstractIdentifyResponseProto{
-		AbstractResultMessage: &pb.AbstractResultMessageProto{AbstractMessage: &pb.AbstractMessageProto{MessageType: pb.MessageTypeProto_TYPE_REG_CLT_RESULT}}}}
-	return msg
+func NewTmRegisterResponse() *pb.RegisterTMResponseProto {
+	return &pb.RegisterTMResponseProto{AbstractIdentifyResponse: &pb.AbstractIdentifyResponseProto{
+		AbstractResultMessage: &pb.AbstractResultMessageProto{AbstractMessage: &pb.AbstractMessageProto{
+			MessageType: pb.MessageTypeProto_TYPE_REG_CLT_RESULT}}}}
 }
 
 func EncodeMessage(msg *Message) ([]byte, error) {
@@ -204,6 +189,19 @@ func EncodeMessage(msg *Message) ([]byte, error) {
 			typeName = TypeNameGlobalRollbackRequest
 		case *pb.GlobalRollbackResponseProto:
 			typeName = TypeNameGlobalRollbackResponse
+
+		case *pb.BranchRegisterRequestProto:
+			typeName = TypeNameBranchRegisterRequest
+		case *pb.BranchRegisterResponseProto:
+			typeName = TypeNameBranchRegisterResponse
+		case *pb.BranchCommitRequestProto:
+			typeName = TypeNameBranchCommitRequest
+		case *pb.BranchCommitResponseProto:
+			typeName = TypeNameBranchCommitResponse
+		case *pb.BranchRollbackRequestProto:
+			typeName = TypeNameBranchRollbackRequest
+		case *pb.BranchRollbackResponseProto:
+			typeName = TypeNameBranchRollbackResponse
 
 		case *pb.TestRequestProto:
 			typeName = TypeNameTestRequest
@@ -267,6 +265,19 @@ func DecodePbMessage(buffer *bytes.Buffer) (msg proto.Message, err error) {
 		msg = &pb.GlobalRollbackResponseProto{}
 	case TypeNameGlobalRollbackResponse:
 		msg = &pb.GlobalRollbackResponseProto{}
+
+	case TypeNameBranchRegisterRequest:
+		msg = &pb.BranchRegisterRequestProto{}
+	case TypeNameBranchRegisterResponse:
+		msg = &pb.BranchRegisterResponseProto{}
+	case TypeNameBranchCommitRequest:
+		msg = &pb.BranchCommitRequestProto{}
+	case TypeNameBranchCommitResponse:
+		msg = &pb.BranchCommitResponseProto{}
+	case TypeNameBranchRollbackRequest:
+		msg = &pb.BranchRollbackRequestProto{}
+	case TypeNameBranchRollbackResponse:
+		msg = &pb.BranchRollbackResponseProto{}
 
 	case TypeNameTestRequest:
 		msg = &pb.TestRequestProto{}
@@ -363,19 +374,93 @@ func NewHeartbeatResponse(id uint32) Message {
 	return Message{Id: id, Tp: MsgTypeHeartbeatResponse, Ser: SerializerProtoBuf, Ver: Version}
 }
 
-func NewGlobalBeginRequest(name string, timeout int32) Message {
-	return Message{Id: nextRequestId(), Tp: MsgTypeRequestSync, Ser: SerializerProtoBuf, Ver: Version,
-		Msg: &pb.GlobalBeginRequestProto{Timeout: timeout, TransactionName: name,
-			AbstractTransactionRequest: &pb.AbstractTransactionRequestProto{
-				AbstractMessage: &pb.AbstractMessageProto{MessageType: pb.MessageTypeProto_TYPE_GLOBAL_BEGIN}}}}
+func NewGlobalBeginRequest(name string, timeout int32) *pb.GlobalBeginRequestProto {
+	return &pb.GlobalBeginRequestProto{Timeout: timeout, TransactionName: name,
+		AbstractTransactionRequest: &pb.AbstractTransactionRequestProto{
+			AbstractMessage: &pb.AbstractMessageProto{MessageType: pb.MessageTypeProto_TYPE_GLOBAL_BEGIN}}}
 }
 
-func NewGlobalCommitRequest(xid string) Message {
-	return Message{Id: nextRequestId(), Tp: MsgTypeRequestSync, Ser: SerializerProtoBuf, Ver: Version,
-		Msg: &pb.GlobalCommitRequestProto{AbstractGlobalEndRequest: &pb.AbstractGlobalEndRequestProto{Xid: xid}}}
+func NewGlobalBeginResponse(id uint32, xid string) *pb.GlobalBeginResponseProto {
+	return &pb.GlobalBeginResponseProto{Xid: xid, AbstractTransactionResponse: &pb.AbstractTransactionResponseProto{
+		AbstractResultMessage: &pb.AbstractResultMessageProto{
+			AbstractMessage: &pb.AbstractMessageProto{MessageType: pb.MessageTypeProto_TYPE_GLOBAL_BEGIN_RESULT}}}}
 }
 
-func NewGlobalRollbackRequest(xid string) Message {
-	return Message{Id: nextRequestId(), Tp: MsgTypeRequestSync, Ser: SerializerProtoBuf, Ver: Version,
-		Msg: &pb.GlobalRollbackRequestProto{AbstractGlobalEndRequest: &pb.AbstractGlobalEndRequestProto{Xid: xid}}}
+func NewGlobalCommitRequest(xid string) *pb.GlobalCommitRequestProto {
+	return &pb.GlobalCommitRequestProto{AbstractGlobalEndRequest: &pb.AbstractGlobalEndRequestProto{Xid: xid,
+		AbstractTransactionRequest: &pb.AbstractTransactionRequestProto{
+			AbstractMessage: &pb.AbstractMessageProto{MessageType: pb.MessageTypeProto_TYPE_GLOBAL_COMMIT}}}}
+}
+
+func NewGlobalCommitResponse() *pb.GlobalCommitResponseProto {
+	return &pb.GlobalCommitResponseProto{AbstractGlobalEndResponse: &pb.AbstractGlobalEndResponseProto{
+		AbstractTransactionResponse: &pb.AbstractTransactionResponseProto{
+			AbstractResultMessage: &pb.AbstractResultMessageProto{
+				AbstractMessage: &pb.AbstractMessageProto{MessageType: pb.MessageTypeProto_TYPE_GLOBAL_COMMIT_RESULT}}}}}
+}
+
+func NewGlobalRollbackRequest(xid string) *pb.GlobalRollbackRequestProto {
+	return &pb.GlobalRollbackRequestProto{AbstractGlobalEndRequest: &pb.AbstractGlobalEndRequestProto{Xid: xid,
+		AbstractTransactionRequest: &pb.AbstractTransactionRequestProto{
+			AbstractMessage: &pb.AbstractMessageProto{MessageType: pb.MessageTypeProto_TYPE_GLOBAL_ROLLBACK}}}}
+}
+
+func NewGlobalRollbackResponse() *pb.GlobalRollbackResponseProto {
+	return &pb.GlobalRollbackResponseProto{AbstractGlobalEndResponse: &pb.AbstractGlobalEndResponseProto{
+		AbstractTransactionResponse: &pb.AbstractTransactionResponseProto{
+			AbstractResultMessage: &pb.AbstractResultMessageProto{
+				AbstractMessage: &pb.AbstractMessageProto{MessageType: pb.MessageTypeProto_TYPE_GLOBAL_ROLLBACK_RESULT}}}}}
+}
+
+func NewBranchRegisterRequest(tp pb.BranchTypeProto, xid string, resourceId string) *pb.BranchRegisterRequestProto {
+	return &pb.BranchRegisterRequestProto{Xid: xid, BranchType: tp, ResourceId: resourceId,
+		AbstractTransactionRequest: &pb.AbstractTransactionRequestProto{AbstractMessage: &pb.AbstractMessageProto{
+			MessageType: pb.MessageTypeProto_TYPE_BRANCH_REGISTER}}}
+}
+
+func NewBranchRegisterResponse(branchId int64) *pb.BranchRegisterResponseProto {
+	return &pb.BranchRegisterResponseProto{BranchId: branchId, AbstractTransactionResponse: &pb.AbstractTransactionResponseProto{
+		AbstractResultMessage: &pb.AbstractResultMessageProto{AbstractMessage: &pb.AbstractMessageProto{
+			MessageType: pb.MessageTypeProto_TYPE_BRANCH_REGISTER_RESULT}}}}
+}
+
+func NewBranchCommitRequest(tp pb.BranchTypeProto, branchId int64, xid string, resourceId string) *pb.BranchCommitRequestProto {
+	return &pb.BranchCommitRequestProto{AbstractBranchEndRequest: &pb.AbstractBranchEndRequestProto{
+		BranchType: tp, BranchId: branchId, Xid: xid, ResourceId: resourceId,
+		AbstractTransactionRequest: &pb.AbstractTransactionRequestProto{
+			AbstractMessage: &pb.AbstractMessageProto{MessageType: pb.MessageTypeProto_TYPE_BRANCH_COMMIT}}}}
+}
+
+func NewBranchCommitResponse(xid string, branchId int64) *pb.BranchCommitResponseProto {
+	return &pb.BranchCommitResponseProto{AbstractBranchEndResponse: &pb.AbstractBranchEndResponseProto{
+		Xid: xid, BranchId: branchId, AbstractTransactionResponse: &pb.AbstractTransactionResponseProto{
+			AbstractResultMessage: &pb.AbstractResultMessageProto{
+				AbstractMessage: &pb.AbstractMessageProto{MessageType: pb.MessageTypeProto_TYPE_BRANCH_COMMIT_RESULT}}}}}
+}
+
+func NewBranchRollbackRequest(tp pb.BranchTypeProto, branchId int64, xid string, resourceId string) *pb.BranchRollbackRequestProto {
+	return &pb.BranchRollbackRequestProto{AbstractBranchEndRequest: &pb.AbstractBranchEndRequestProto{
+		BranchType: tp, BranchId: branchId, Xid: xid, ResourceId: resourceId,
+		AbstractTransactionRequest: &pb.AbstractTransactionRequestProto{
+			AbstractMessage: &pb.AbstractMessageProto{MessageType: pb.MessageTypeProto_TYPE_BRANCH_ROLLBACK}}}}
+}
+
+func NewBranchRollbackResponse(xid string, branchId int64) *pb.BranchRollbackResponseProto {
+	return &pb.BranchRollbackResponseProto{AbstractBranchEndResponse: &pb.AbstractBranchEndResponseProto{
+		Xid: xid, BranchId: branchId,
+		AbstractTransactionResponse: &pb.AbstractTransactionResponseProto{
+			AbstractResultMessage: &pb.AbstractResultMessageProto{AbstractMessage: &pb.AbstractMessageProto{
+				MessageType: pb.MessageTypeProto_TYPE_BRANCH_ROLLBACK_RESULT}}}}}
+}
+
+func NewResponseMessage(id uint32) Message {
+	return Message{Id: id, Tp: MsgTypeResponse, Ser: SerializerProtoBuf, Ver: Version}
+}
+
+func NewSyncRequestMessage() Message {
+	return Message{Id: nextRequestId(), Tp: MsgTypeRequestSync, Ser: SerializerProtoBuf, Ver: Version}
+}
+
+func NewAsyncRequestMessage() Message {
+	return Message{Id: nextRequestId(), Tp: MsgTypeRequestOneway, Ser: SerializerProtoBuf, Ver: Version}
 }

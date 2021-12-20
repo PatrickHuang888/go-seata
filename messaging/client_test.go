@@ -80,7 +80,7 @@ func TestAsyncCallToJava(t *testing.T) {
 		return nil
 	})
 
-	msg := v1.NewRmRegRequest("rm-test", "tx-group-test", "resourceIds")
+	msg := v1.NewResourceRegisterRequest("rm-test", "tx-group-test", "resourceIds")
 	if err = c.AsyncCall(msg); err != nil {
 		t.Fatalf("%+v", err)
 	}
@@ -97,7 +97,7 @@ func TestPingToJava(t *testing.T) {
 
 	config := DefaultConfig()
 	config.WriteIdle = 1 * time.Second
-	c, err := NewClientWithConfig("localhost:8091", config)
+	c, err := NewClientWithConfig("localhost:8091", "test-app", "tx-group", config)
 	if err != nil {
 		t.Fatal(err)
 	}
