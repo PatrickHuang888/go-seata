@@ -12,10 +12,31 @@ import (
 	"time"
 )
 
+type tmRegHandler struct {
+}
+
+func (h *tmRegHandler) HandleMessage(c *Channel, msg v1.Message) error {
+
+	_, ok := msg.Msg.(*pb.RegisterTMRequestProto)
+	if ok {
+		rsp := v1.NewResponseMessage(msg.Id)
+		tmRsp := v1.NewTmRegisterResponse()
+		rsp.Msg = tmRsp
+		tmRsp.AbstractIdentifyResponse.AbstractResultMessage.ResultCode = pb.ResultCodeProto_Success
+
+		logging.Debugf("send tm reg response %s", rsp.String())
+
+		ctx := context.Background()
+		return c.SendResponse(ctx, &rsp)
+	}
+	return nil
+}
+
 func TestBasicSendAndReceive(t *testing.T) {
 
 	s := NewServer("localhost:7788")
-	s.RegisterRequestHandler(handleTmReg)
+	h := &tmRegHandler{}
+	s.RegisterSyncRequestHandler(h)
 	go s.Serv()
 
 	<-s.ready
@@ -25,17 +46,18 @@ func TestBasicSendAndReceive(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := v1.NewTmRegRequest("tm-test", "tx-group-test")
+	req := v1.NewSyncRequestMessage()
+	req.Msg = v1.NewTmRegisterRequest("tm-test", "tx-group-test")
 	rsp, err := c.Call(req)
 	if err != nil {
 		t.Fatal(err)
 	}
-	tmRsp, ok := rsp.Msg.(*pb.RegisterTMResponseProto)
+	msg, ok := rsp.Msg.(*pb.RegisterTMResponseProto)
 	if !ok {
 		t.Errorf("not tm register response")
 	}
 
-	if tmRsp.AbstractIdentifyResponse.AbstractResultMessage.GetResultCode() != pb.ResultCodeProto_Success {
+	if msg.AbstractIdentifyResponse.AbstractResultMessage.GetResultCode() != pb.ResultCodeProto_Success {
 		t.Errorf("result error")
 	}
 
@@ -45,7 +67,10 @@ func TestBasicSendAndReceive(t *testing.T) {
 	time.Sleep(2 * time.Second)
 }
 
-func handleTest(c *Channel, msg v1.Message) error {
+type testMessageHandler struct {
+}
+
+func (th *testMessageHandler) HandleMessage(c *Channel, msg v1.Message) error {
 	req, ok := msg.Msg.(*pb.TestRequestProto)
 	if ok {
 		switch req.GetType() {
@@ -79,7 +104,8 @@ func handleTest(c *Channel, msg v1.Message) error {
 
 func TestTimeout(t *testing.T) {
 	s := NewServer("localhost:7788")
-	s.RegisterRequestHandler(handleTest)
+	h := &testMessageHandler{}
+	s.RegisterSyncRequestHandler(h)
 	go s.Serv()
 
 	<-s.ready
@@ -104,7 +130,8 @@ func TestTimeout(t *testing.T) {
 
 func TestDeadline(t *testing.T) {
 	s := NewServer("localhost:7788")
-	s.RegisterRequestHandler(handleTest)
+	h := &testMessageHandler{}
+	s.RegisterSyncRequestHandler(h)
 	go s.Serv()
 
 	<-s.ready
@@ -142,7 +169,8 @@ func TestDeadline(t *testing.T) {
 
 func TestCancel(t *testing.T) {
 	s := NewServer("localhost:7788")
-	s.RegisterRequestHandler(handleTest)
+	h := &testMessageHandler{}
+	s.RegisterSyncRequestHandler(h)
 	go s.Serv()
 
 	<-s.ready
@@ -202,7 +230,9 @@ func TestConcurrent(t *testing.T) {
 	waits.Add(threads)
 
 	s := NewServer("localhost:7788")
-	s.RegisterRequestHandler(handleTest)
+
+	h := &testMessageHandler{}
+	s.RegisterSyncRequestHandler(h)
 	go s.Serv()
 
 	<-s.ready

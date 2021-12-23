@@ -47,8 +47,9 @@ type Channel struct {
 	sending chan *operation
 	sent    chan *operation
 
-	reqHandlers      []MsgHandler
-	asyncRspHandlers []MsgHandler
+	syncReqHandlers  []MessageHandler
+	asyncReqHandlers []MessageHandler
+	asyncRspHandlers []MessageHandler
 
 	pingTimer *time.Timer
 	pingStop  chan struct{}
@@ -64,7 +65,7 @@ type CloseListener interface {
 	ChannelClose(string)
 }
 
-type MsgHandler func(*Channel, v1.Message) error
+type HandleMessage func(v1.Message) error
 
 func NewChannelWithConfig(name string, conn net.Conn, config *ChannelConfig) *Channel {
 	c := &Channel{name: name, conn: conn, closing: make(chan struct{}, 1), pendings: make(map[uint32]*operation),
@@ -149,6 +150,7 @@ func (c *Channel) run() {
 
 			switch read.msg.Tp {
 			case v1.MsgTypeHeartbeatResponse:
+				// todo: heartbeat request/response handler
 				fallthrough
 			case v1.MsgTypeResponse:
 				pending := c.pendings[read.msg.Id]
@@ -159,8 +161,8 @@ func (c *Channel) run() {
 
 				if pending.reqTp == v1.MsgTypeRequestOneway || pending.reqTp == v1.MsgTypeHeartbeatRequest {
 					if read.err == nil {
-						for _, handle := range c.asyncRspHandlers {
-							if err := handle(c, *read.msg); err != nil {
+						for _, handler := range c.asyncRspHandlers {
+							if err := handler.HandleMessage(*read.msg); err != nil {
 								logging.Errorf("handling async")
 							}
 						}
@@ -172,12 +174,19 @@ func (c *Channel) run() {
 				}
 
 			case v1.MsgTypeRequestSync:
-				fallthrough
+				if read.err == nil {
+					for _, h := range c.syncReqHandlers {
+						if err := h.HandleMessage(*read.msg); err != nil {
+							logging.Errorf("handling request message error %+v", err)
+						}
+					}
+				}
+
 			case v1.MsgTypeRequestOneway:
 
 				if read.err == nil {
-					for _, handle := range c.reqHandlers {
-						if err := handle(c, *read.msg); err != nil {
+					for _, h := range c.asyncReqHandlers {
+						if err := h.HandleMessage(*read.msg); err != nil {
 							logging.Errorf("handling request message error %+v", err)
 						}
 					}
@@ -254,11 +263,15 @@ func (c *Channel) read() {
 	}
 }
 
-func (c *Channel) RegisterRequestHandler(h MsgHandler) {
-	c.reqHandlers = append(c.reqHandlers, h)
+func (c *Channel) RegisterSyncRequestHandler(h MessageHandler) {
+	c.syncReqHandlers = append(c.syncReqHandlers, h)
 }
 
-func (c *Channel) RegisterAsyncRspHandler(h MsgHandler) {
+func (c *Channel) RegisterAsyncRequestHandler(h MessageHandler) {
+	c.asyncReqHandlers = append(c.asyncReqHandlers, h)
+}
+
+func (c *Channel) RegisterAsyncResponseHandler(h MessageHandler) {
 	c.asyncRspHandlers = append(c.asyncRspHandlers, h)
 }
 
@@ -395,4 +408,8 @@ func (c *Channel) write(data []byte, retry bool) error {
 
 func (c *Channel) Close() {
 	c.closing <- struct{}{}
+}
+
+type MessageHandler interface {
+	HandleMessage(msg v1.Message) error
 }

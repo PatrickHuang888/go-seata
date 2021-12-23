@@ -16,7 +16,8 @@ func TestCallToJava(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	req := v1.NewTmRegRequest("tm-test", "tx-group-test")
+	req := v1.NewSyncRequestMessage()
+	req.Msg = v1.NewTmRegisterRequest("tm-test", "tx-group-test")
 	rsp, err := c.Call(req)
 	if err != nil {
 		t.Fatal(err)
@@ -45,7 +46,8 @@ func TestCallToJavaConcurrently(t *testing.T) {
 		go func() {
 			defer wg.Done()
 
-			req := v1.NewTmRegRequest("req-test", "tx-group-test")
+			req := v1.NewSyncRequestMessage()
+			req.Msg = v1.NewTmRegisterRequest("tm-test", "tx-group-test")
 			rsp, err := c.Call(req)
 			if err != nil {
 				t.Fatal(err)
@@ -62,6 +64,22 @@ func TestCallToJavaConcurrently(t *testing.T) {
 	//time.Sleep(5 * time.Second)
 }
 
+type testRmRspHandler struct {
+	t    *testing.T
+	wait chan struct{}
+	c    *Client
+}
+
+func (h *testRmRspHandler) HandleMessage(msg v1.Message) error {
+	_, ok := msg.Msg.(*pb.RegisterRMResponseProto)
+	if !ok {
+		h.t.Fatal("response type error")
+	}
+	fmt.Println("get the rm register response")
+	h.wait <- struct{}{}
+	return nil
+}
+
 // should connect to real seata-server
 func TestAsyncCallToJava(t *testing.T) {
 	wait := make(chan struct{})
@@ -70,18 +88,13 @@ func TestAsyncCallToJava(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	c.RegisterAsyncRspHandler(func(c *Channel, msg v1.Message) error {
-		_, ok := msg.Msg.(*pb.RegisterRMResponseProto)
-		if !ok {
-			t.Errorf("not rm register response")
-		}
-		fmt.Println("get the rm register response")
-		wait <- struct{}{}
-		return nil
-	})
 
-	msg := v1.NewResourceRegisterRequest("rm-test", "tx-group-test", "resourceIds")
-	if err = c.AsyncCall(msg); err != nil {
+	h := &testRmRspHandler{c: c, wait: wait, t: t}
+	c.RegisterAsyncResponseHandler(h)
+
+	req := v1.NewAsyncRequestMessage()
+	req.Msg = v1.NewResourceRegisterRequest("rm-test", "tx-group-test", "resourceIds")
+	if err = c.AsyncCall(req); err != nil {
 		t.Fatalf("%+v", err)
 	}
 
@@ -89,6 +102,19 @@ func TestAsyncCallToJava(t *testing.T) {
 	fmt.Println("close client")
 	c.Close()
 	//time.Sleep(5 * time.Second)
+}
+
+type testPongHandler struct {
+	result *bool
+	c      *Client
+}
+
+func (h *testPongHandler) HandleMessage(msg v1.Message) error {
+	if msg.Tp == v1.MsgTypeHeartbeatResponse {
+		fmt.Println("get the heartbeat response")
+		*h.result = true
+	}
+	return nil
 }
 
 // start seata server first
@@ -102,13 +128,8 @@ func TestPingToJava(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	c.RegisterAsyncRspHandler(func(c *Channel, msg v1.Message) error {
-		if msg.Tp == v1.MsgTypeHeartbeatResponse {
-			fmt.Println("get the heartbeat response")
-			result = true
-		}
-		return nil
-	})
+	h := &testPongHandler{c: c, result: &result}
+	c.RegisterAsyncResponseHandler(h)
 
 	<-time.After(c.config.WriteIdle * 3) // read idle
 

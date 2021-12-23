@@ -1,11 +1,9 @@
 package messaging
 
 import (
-	"context"
 	"fmt"
 	"github.com/PatrickHuang888/go-seata/logging"
 	v1 "github.com/PatrickHuang888/go-seata/messaging/v1"
-	"github.com/PatrickHuang888/go-seata/protocol/pb"
 	"go.uber.org/atomic"
 	"net"
 )
@@ -22,8 +20,9 @@ type Server struct {
 
 	channels map[string]*Channel
 
-	reqHandlers      []MsgHandler
-	asyncRspHandlers []MsgHandler
+	syncReqHandlers  []ServerMessageHandler
+	asyncReqHandlers []ServerMessageHandler
+	asyncRspHandlers []ServerMessageHandler
 }
 
 func NewServer(addr string) *Server {
@@ -71,7 +70,7 @@ func (s *Server) Serv() {
 
 loop:
 	for {
-		c, err := l.Accept()
+		conn, err := l.Accept()
 
 		if err != nil {
 			if s.close.Load() {
@@ -84,15 +83,14 @@ loop:
 
 		}
 
-		ch := NewChannel(c)
+		ch := NewChannel(conn)
 		ch.closeListener = s
 		s.channels[ch.name] = ch
-		for _, h := range s.reqHandlers {
-			ch.RegisterRequestHandler(h)
-		}
-		for _, h := range s.asyncRspHandlers {
-			ch.RegisterAsyncRspHandler(h)
-		}
+
+		h := &defaultChannelHandler{ch, s}
+		ch.RegisterSyncRequestHandler(h)
+		ch.RegisterAsyncResponseHandler(h)
+		ch.RegisterAsyncRequestHandler(h)
 
 		go ch.run()
 	}
@@ -101,11 +99,50 @@ loop:
 	<-s.closed
 }
 
-func (s *Server) RegisterRequestHandler(h MsgHandler) {
-	s.reqHandlers = append(s.reqHandlers, h)
+type defaultChannelHandler struct {
+	c   *Channel
+	svr *Server
 }
 
-func (s *Server) RegisterAsyncRspHandler(h MsgHandler) {
+func (dch *defaultChannelHandler) HandleMessage(msg v1.Message) error {
+	switch msg.Tp {
+	case v1.MsgTypeRequestSync:
+		for _, h := range dch.svr.syncReqHandlers {
+			if err := h.HandleMessage(dch.c, msg); err != nil {
+				logging.Errorf("%+v", err)
+			}
+		}
+
+	case v1.MsgTypeRequestOneway:
+		for _, h := range dch.svr.asyncReqHandlers {
+			if err := h.HandleMessage(dch.c, msg); err != nil {
+				logging.Errorf("+v", err)
+			}
+		}
+
+	case v1.MsgTypeResponse:
+		for _, h := range dch.svr.asyncRspHandlers {
+			if err := h.HandleMessage(dch.c, msg); err != nil {
+				logging.Errorf("+v", err)
+			}
+		}
+
+	default:
+		logging.Errorf("message type unknown")
+	}
+
+	return nil
+}
+
+func (s *Server) RegisterSyncRequestHandler(h ServerMessageHandler) {
+	s.syncReqHandlers = append(s.syncReqHandlers, h)
+}
+
+func (s *Server) RegisterAyncRequestHandler(h ServerMessageHandler) {
+	s.asyncRspHandlers = append(s.asyncReqHandlers, h)
+}
+
+func (s *Server) RegisterAsyncRspHandler(h ServerMessageHandler) {
 	s.asyncRspHandlers = append(s.asyncRspHandlers, h)
 }
 
@@ -121,17 +158,6 @@ func (s *Server) Ready() <-chan struct{} {
 	return s.ready
 }
 
-func handleTmReg(c *Channel, req v1.Message) error {
-
-	_, ok := req.Msg.(*pb.RegisterTMRequestProto)
-	if ok {
-		rsp := v1.NewTmRegResponse(req.Id)
-		rsp.Msg.(*pb.RegisterTMResponseProto).AbstractIdentifyResponse.AbstractResultMessage.ResultCode = pb.ResultCodeProto_Success
-		logging.Debugf("send tm reg response %s", rsp.String())
-
-		ctx := context.Background()
-
-		return c.SendResponse(ctx, rsp)
-	}
-	return nil
+type ServerMessageHandler interface {
+	HandleMessage(c *Channel, msg v1.Message) error
 }
