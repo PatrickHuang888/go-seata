@@ -17,8 +17,8 @@ type Client struct {
 	*Channel
 }
 
-func NewClient(tcAddr string) (*Client, error) {
-	return NewClientWithConfig(tcAddr, "", "", DefaultConfig())
+func NewClient(tcAddr string, appId string, txGroup string) (*Client, error) {
+	return NewClientWithConfig(tcAddr, appId, txGroup, DefaultConfig())
 }
 
 func NewClientWithConfig(tcAddr string, appId string, txGroup string, config *ChannelConfig) (*Client, error) {

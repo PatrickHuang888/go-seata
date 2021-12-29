@@ -11,13 +11,13 @@ import (
 
 // should start io.seata.core.rpc.netty.v1.ProtocolV1Server first
 func TestCallToJava(t *testing.T) {
-	c, err := NewClient("localhost:8811")
+	c, err := NewClient("localhost:8811", "test-client", "test-txGroup")
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	req := v1.NewSyncRequestMessage()
-	req.Msg = v1.NewTmRegisterRequest("tm-test", "tx-group-test")
+	req.Msg = v1.NewTmRegisterRequest(c.appId, c.txGroup)
 	rsp, err := c.Call(req)
 	if err != nil {
 		t.Fatal(err)
@@ -37,7 +37,7 @@ func TestCallToJavaConcurrently(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(threads)
 
-	c, err := NewClient("localhost:8811")
+	c, err := NewClient("localhost:8811", "test-client", "test-txGroup")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -47,7 +47,7 @@ func TestCallToJavaConcurrently(t *testing.T) {
 			defer wg.Done()
 
 			req := v1.NewSyncRequestMessage()
-			req.Msg = v1.NewTmRegisterRequest("tm-test", "tx-group-test")
+			req.Msg = v1.NewTmRegisterRequest(c.appId, c.txGroup)
 			rsp, err := c.Call(req)
 			if err != nil {
 				t.Fatal(err)
@@ -84,7 +84,7 @@ func (h *testRmRspHandler) HandleMessage(msg v1.Message) error {
 func TestAsyncCallToJava(t *testing.T) {
 	wait := make(chan struct{})
 
-	c, err := NewClient("localhost:8091")
+	c, err := NewClient("localhost:8091", "test-client", "test-txGroup")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestAsyncCallToJava(t *testing.T) {
 	c.RegisterAsyncResponseHandler(h)
 
 	req := v1.NewAsyncRequestMessage()
-	req.Msg = v1.NewResourceRegisterRequest("rm-test", "tx-group-test", "resourceIds")
+	req.Msg = v1.NewResourceRegisterRequest(c.appId, c.txGroup, "resourceIds")
 	if err = c.AsyncCall(req); err != nil {
 		t.Fatalf("%+v", err)
 	}

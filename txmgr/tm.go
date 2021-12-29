@@ -12,17 +12,17 @@ type TM struct {
 	c *messaging.Client
 }
 
-func NewTm(svrAddr string) (*TM, error) {
-	c, err := messaging.NewClient(svrAddr)
+func NewTm(svrAddr string, appId string, txGroup string) (*TM, error) {
+	c, err := messaging.NewClient(svrAddr, appId, txGroup)
 	if err != nil {
 		return nil, err
 	}
 	return &TM{c: c}, nil
 }
 
-func (tm *TM) Register(appId string, txGroup string) error {
+func (tm *TM) Register() error {
 	req := v1.NewSyncRequestMessage()
-	req.Msg = v1.NewTmRegisterRequest(appId, txGroup)
+	req.Msg = v1.NewTmRegisterRequest(tm.c.AppId(), tm.c.TxGroup())
 	rsp, err := tm.c.Call(req)
 	if err != nil {
 		return errors.WithStack(err)

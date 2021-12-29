@@ -15,6 +15,10 @@ import (
 type tmRegHandler struct {
 }
 
+var appId = "test-client"
+var txGroup = "test-txGroup"
+var testSvrAddr = "localhost:7788"
+
 func (h *tmRegHandler) HandleMessage(c *Channel, msg v1.Message) error {
 
 	_, ok := msg.Msg.(*pb.RegisterTMRequestProto)
@@ -34,20 +38,20 @@ func (h *tmRegHandler) HandleMessage(c *Channel, msg v1.Message) error {
 
 func TestBasicSendAndReceive(t *testing.T) {
 
-	s := NewServer("localhost:7788")
+	s := NewServer(testSvrAddr)
 	h := &tmRegHandler{}
 	s.RegisterSyncRequestHandler(h)
 	go s.Serv()
 
 	<-s.ready
 
-	c, err := NewClient("localhost:7788")
+	c, err := NewClient(testSvrAddr, appId, txGroup)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	req := v1.NewSyncRequestMessage()
-	req.Msg = v1.NewTmRegisterRequest("tm-test", "tx-group-test")
+	req.Msg = v1.NewTmRegisterRequest(c.AppId(), c.TxGroup())
 	rsp, err := c.Call(req)
 	if err != nil {
 		t.Fatal(err)
@@ -103,7 +107,7 @@ func (th *testMessageHandler) HandleMessage(c *Channel, msg v1.Message) error {
 }
 
 func TestTimeout(t *testing.T) {
-	s := NewServer("localhost:7788")
+	s := NewServer(testSvrAddr)
 	h := &testMessageHandler{}
 	s.RegisterSyncRequestHandler(h)
 	go s.Serv()
@@ -129,14 +133,14 @@ func TestTimeout(t *testing.T) {
 }
 
 func TestDeadline(t *testing.T) {
-	s := NewServer("localhost:7788")
+	s := NewServer(testSvrAddr)
 	h := &testMessageHandler{}
 	s.RegisterSyncRequestHandler(h)
 	go s.Serv()
 
 	<-s.ready
 
-	c, err := NewClient("localhost:7788")
+	c, err := NewClient(testSvrAddr, appId, txGroup)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -168,14 +172,14 @@ func TestDeadline(t *testing.T) {
 }
 
 func TestCancel(t *testing.T) {
-	s := NewServer("localhost:7788")
+	s := NewServer(testSvrAddr)
 	h := &testMessageHandler{}
 	s.RegisterSyncRequestHandler(h)
 	go s.Serv()
 
 	<-s.ready
 
-	c, err := NewClient("localhost:7788")
+	c, err := NewClient(testSvrAddr, appId, txGroup)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -229,7 +233,7 @@ func TestConcurrent(t *testing.T) {
 	var waits sync.WaitGroup
 	waits.Add(threads)
 
-	s := NewServer("localhost:7788")
+	s := NewServer(testSvrAddr)
 
 	h := &testMessageHandler{}
 	s.RegisterSyncRequestHandler(h)
@@ -237,7 +241,7 @@ func TestConcurrent(t *testing.T) {
 
 	<-s.ready
 
-	c, err := NewClient("localhost:7788")
+	c, err := NewClient(testSvrAddr, appId, txGroup)
 	if err != nil {
 		t.Error(err)
 	}
