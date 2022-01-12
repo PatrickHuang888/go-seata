@@ -229,7 +229,10 @@ func EncodeMessage(msg *Message) ([]byte, error) {
 	headLength := StartLength + headMapLength
 	binary.BigEndian.PutUint16(bs[7:9], headLength)
 
-	fullLength := uint32(headLength) + 4 + typeNameLength + uint32(len(body))
+	fullLength := uint32(StartLength)
+	if msg.Tp != MsgTypeHeartbeatRequest && msg.Tp != MsgTypeHeartbeatResponse {
+		fullLength = uint32(headLength) + 4 + typeNameLength + uint32(len(body)) // 4 bytes contains typeNameLength value
+	}
 	binary.BigEndian.PutUint32(bs[3:7], fullLength)
 
 	return bs, nil
