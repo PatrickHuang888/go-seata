@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	DefaultWriteIdle = 5 * time.Second
-
+	DefaultWriteIdle       = 5 * time.Second
+	DefaultRpcTimeout      = 30 * time.Second
 	DefaultEnableHeartbeat = true
 )
 
@@ -25,7 +25,7 @@ type ChannelConfig struct {
 }
 
 func DefaultConfig() *ChannelConfig {
-	return &ChannelConfig{Timeout: 0, EnableHeartBeat: DefaultEnableHeartbeat, WriteIdle: DefaultWriteIdle}
+	return &ChannelConfig{Timeout: DefaultRpcTimeout, EnableHeartBeat: DefaultEnableHeartbeat, WriteIdle: DefaultWriteIdle}
 }
 
 type Channel struct {
@@ -182,6 +182,8 @@ func (c *Channel) run() {
 					}
 				}
 
+			case v1.MsgTypeHeartbeatRequest:
+				fallthrough
 			case v1.MsgTypeRequestOneway:
 
 				if read.err == nil {
@@ -191,9 +193,6 @@ func (c *Channel) run() {
 						}
 					}
 				}
-
-			case v1.MsgTypeHeartbeatRequest:
-				fmt.Println("how to handle message heartbeat request")
 
 			default:
 				logging.Warningf("message type unknown %d", read.msg.Tp)
@@ -205,7 +204,9 @@ func (c *Channel) run() {
 			}
 
 		case sending := <-c.sending:
-			c.pendings[sending.id] = sending
+			if sending != nil {
+				c.pendings[sending.id] = sending
+			}
 		}
 	}
 
@@ -349,13 +350,7 @@ func (c *Channel) SendResponse(ctx context.Context, msg *v1.Message) error {
 
 	logging.Debugf("send response %d\n", msg.Id)
 
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-		return c.write(bs, false)
-	}
-	return nil
+	return c.send(ctx, nil, bs)
 }
 
 func (c *Channel) send(ctx context.Context, op *operation, data []byte) error {
@@ -373,13 +368,17 @@ func (c *Channel) send(ctx context.Context, op *operation, data []byte) error {
 		}
 
 		err := c.write(data, false)
-		op.err = err
-		c.sent <- op
+		if op != nil {
+			op.err = err
+			c.sent <- op
+		}
 		if err != nil {
 			return err
 		}
 
-		c.pingTimer.Reset(c.config.WriteIdle)
+		if c.pingTimer != nil {
+			c.pingTimer.Reset(c.config.WriteIdle)
+		}
 
 	case <-ctx.Done():
 		fmt.Println("send done")
