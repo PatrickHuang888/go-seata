@@ -83,7 +83,9 @@ loop:
 
 		}
 
-		ch := NewChannel(conn)
+		config := DefaultConfig()
+		config.EnableHeartBeat = false
+		ch := NewChannelWithConfig("server", conn, config)
 		ch.closeListener = s
 		s.channels[ch.name] = ch
 
@@ -113,6 +115,8 @@ func (dch *defaultChannelHandler) HandleMessage(msg v1.Message) error {
 			}
 		}
 
+	case v1.MsgTypeHeartbeatRequest:
+		fallthrough
 	case v1.MsgTypeRequestOneway:
 		for _, h := range dch.svr.asyncReqHandlers {
 			if err := h.HandleMessage(dch.c, msg); err != nil {
@@ -138,8 +142,8 @@ func (s *Server) RegisterSyncRequestHandler(h ServerMessageHandler) {
 	s.syncReqHandlers = append(s.syncReqHandlers, h)
 }
 
-func (s *Server) RegisterAyncRequestHandler(h ServerMessageHandler) {
-	s.asyncRspHandlers = append(s.asyncReqHandlers, h)
+func (s *Server) RegisterAsyncRequestHandler(h ServerMessageHandler) {
+	s.asyncReqHandlers = append(s.asyncReqHandlers, h)
 }
 
 func (s *Server) RegisterAsyncRspHandler(h ServerMessageHandler) {

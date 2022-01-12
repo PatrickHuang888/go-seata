@@ -9,6 +9,11 @@ import (
 	"time"
 )
 
+var (
+	javaServer = "localhost:8091"
+	goServer   = "localhost:7788"
+)
+
 // should start io.seata.core.rpc.netty.v1.ProtocolV1Server first
 func TestCallToJava(t *testing.T) {
 	c, err := NewClient("localhost:8811", "test-client", "test-txGroup")
@@ -105,36 +110,35 @@ func TestAsyncCallToJava(t *testing.T) {
 }
 
 type testPongHandler struct {
-	result *bool
+	result int
 	c      *Client
 }
 
 func (h *testPongHandler) HandleMessage(msg v1.Message) error {
 	if msg.Tp == v1.MsgTypeHeartbeatResponse {
 		fmt.Println("get the heartbeat response")
-		*h.result = true
+		h.result++
 	}
 	return nil
 }
 
-// start seata server first
-func TestPingToJava(t *testing.T) {
-	var result bool
-
+// start server first
+func TestPing(t *testing.T) {
 	config := DefaultConfig()
-	config.WriteIdle = 1 * time.Second
-	c, err := NewClientWithConfig("localhost:8091", "test-app", "tx-group", config)
+	config.WriteIdle = 2 * time.Second
+	config.Timeout = 7 * time.Second
+	c, err := NewClientWithConfig(javaServer, "test-app", "tx-group", config)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	h := &testPongHandler{c: c, result: &result}
+	h := &testPongHandler{c: c}
 	c.RegisterAsyncResponseHandler(h)
 
-	<-time.After(c.config.WriteIdle * 3) // read idle
+	<-time.After(c.config.Timeout) // read idle
 
-	if !result {
-		t.Fatal("no heartbeat response")
+	if h.result != 3 {
+		t.Fatal("heartbeat response error")
 	}
 
 	fmt.Println("close client")
