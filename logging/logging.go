@@ -37,41 +37,34 @@ func init() {
 	global = logger.Sugar()
 }
 
+func Debug(s string) {
+	global.Debug(s)
+}
+
 func Debugf(template string, args ...interface{}) {
-	global.Debugf(template, args)
+	global.Debugf(template, args...)
 }
 
-func Debug(args ...interface{}) {
-	global.Debug(args)
-}
-
-func Error(args interface{}) {
-	global.Error(args)
+func Error(s string) {
+	global.Error(s)
 }
 
 func Errorf(template string, args ...interface{}) {
 	global.Errorf(template, args...)
 }
 
-func Info(str string) {
-	global.Info(str)
+func Info(s string) {
+	global.Info(s)
 }
 
 func Infof(template string, args ...interface{}) {
 	global.Infof(template, args...)
 }
 
-func Fatalw(msg string, keysAndValues ...interface{}) {
-	global.Fatalw(msg, keysAndValues...)
+func Warnn(s string) {
+	global.Warn(s)
 }
 
-func Warning(err interface{}) {
-	global.Warn(err)
-}
-
-func Warningf(template string, args ...interface{}) {
-	global.Warnf(template, args)
-}
-func Infow(msg string, keysAndValues ...interface{}) {
-	global.Infow(msg, keysAndValues)
+func Warnf(template string, args ...interface{}) {
+	global.Warnf(template, args...)
 }
