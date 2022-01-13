@@ -9,15 +9,19 @@ import (
 )
 
 type RM struct {
-	c *messaging.Client
+	*messaging.Client
 }
 
 func NewRM(c *messaging.Client) *RM {
-	c.RegisterAsyncRspHandler(resourceRegistered)
-	return &RM{c}
+	rm := &RM{c}
+	c.RegisterAsyncResponseHandler(&rsRegHandler{})
+	return rm
 }
 
-func resourceRegistered(c *messaging.Channel, msg v1.Message) error {
+type rsRegHandler struct {
+}
+
+func (h *rsRegHandler) HandleMessage(msg v1.Message) error {
 	rsp, ok := msg.Msg.(*pb.RegisterRMResponseProto)
 	if ok {
 		if rsp.AbstractIdentifyResponse.AbstractResultMessage.ResultCode == pb.ResultCodeProto_Success {
@@ -33,8 +37,8 @@ func (rm *RM) RegisterResource(tp pb.BranchTypeProto, resourceId string) {
 	// todo: client reconnect
 
 	req := v1.NewAsyncRequestMessage()
-	req.Msg = v1.NewResourceRegisterRequest(rm.c.AppId(), rm.c.TxGroup(), resourceId)
-	if err := rm.c.AsyncCall(req); err != nil {
+	req.Msg = v1.NewResourceRegisterRequest(rm.AppId(), rm.TxGroup(), resourceId)
+	if err := rm.AsyncCall(req); err != nil {
 		logging.Errorf("resource register error %+v", err)
 	}
 }
@@ -43,7 +47,7 @@ func (rm *RM) RegisterBranch(tp pb.BranchTypeProto, xid string, resourceId strin
 	req := v1.NewSyncRequestMessage()
 	req.Msg = v1.NewBranchRegisterRequest(tp, xid, resourceId)
 
-	rsp, err := rm.c.Call(req)
+	rsp, err := rm.Call(req)
 	if err != nil {
 		return 0, err
 	}
@@ -57,43 +61,26 @@ func (rm *RM) RegisterBranch(tp pb.BranchTypeProto, xid string, resourceId strin
 	return regRsp.BranchId, nil
 }
 
-/*func (rm *RM) BranchCommit(tp pb.BranchTypeProto, branchId int64, xid string, resourceId string) (pb.BranchStatusProto, error) {
-	req := v1.NewSyncRequestMessage()
-	req.Msg = v1.NewBranchCommitRequest(tp, branchId, xid, resourceId)
-
-	rsp, err := rm.c.Call(req)
-	if err != nil {
-		return pb.BranchStatusProto_BUnknown, err
-	}
-
-	commitRsp, ok := rsp.Msg.(*pb.BranchCommitResponseProto)
-	if !ok {
-		return pb.BranchStatusProto_BUnknown, errors.New("response type error")
-	}
-	if commitRsp.AbstractBranchEndResponse.AbstractTransactionResponse.AbstractResultMessage.ResultCode != pb.ResultCodeProto_Success {
-		return commitRsp.AbstractBranchEndResponse.BranchStatus,
-			errors.New(commitRsp.AbstractBranchEndResponse.AbstractTransactionResponse.AbstractResultMessage.Msg)
-	}
-	return commitRsp.AbstractBranchEndResponse.BranchStatus, nil
+type Resource interface {
+	Id() string
+	GroupId() string
+	BranchType() pb.BranchTypeProto
 }
 
-func (rm *RM) BranchRollback(tp pb.BranchTypeProto, branchId int64, xid string, resourceId string) (pb.BranchStatusProto, error) {
-	req := v1.NewSyncRequestMessage()
-	req.Msg = v1.NewBranchRollbackRequest(tp, branchId, xid, resourceId)
-
-	rsp, err := rm.c.Call(req)
-	if err != nil {
-		return pb.BranchStatusProto_BUnknown, err
-	}
-
-	rollback, ok := rsp.Msg.(*pb.BranchRollbackResponseProto)
-	if !ok {
-		return pb.BranchStatusProto_BUnknown, errors.New("response type error")
-	}
-	if rollback.AbstractBranchEndResponse.AbstractTransactionResponse.AbstractResultMessage.ResultCode != pb.ResultCodeProto_Success {
-		return rollback.AbstractBranchEndResponse.BranchStatus, errors.Errorf("branch rollback fail %s",
-			rollback.AbstractBranchEndResponse.AbstractTransactionResponse.AbstractResultMessage.Msg)
-	}
-	return rollback.AbstractBranchEndResponse.BranchStatus, nil
+type resource struct {
+	id         string
+	groupdId   string
+	branchType pb.BranchTypeProto
 }
-*/
+
+func (r resource) Id() string {
+	return r.id
+}
+
+func (r resource) GroupId() string {
+	return r.groupdId
+}
+
+func (r resource) BranchType() pb.BranchTypeProto {
+	return r.branchType
+}

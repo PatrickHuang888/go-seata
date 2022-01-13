@@ -36,7 +36,7 @@ func (s *Server) Serv() {
 		logging.Errorf("listen error ", err)
 		s.Close()
 	}
-	logging.Infof("listen on %s\n", s.addr)
+	logging.Infof("listen on %s", s.addr)
 
 	s.ready <- struct{}{}
 
@@ -77,7 +77,7 @@ loop:
 				logging.Infof("closing listener")
 				break loop
 			} else {
-				logging.Errorf("accept error %s\n", err.Error())
+				logging.Errorf("accept error %s", err.Error())
 				continue
 			}
 
@@ -85,9 +85,9 @@ loop:
 
 		config := DefaultConfig()
 		config.EnableHeartBeat = false
-		ch := NewChannelWithConfig("server", conn, config)
+		ch := NewChannelWithConfig(conn, config)
 		ch.closeListener = s
-		s.channels[ch.name] = ch
+		s.channels[ch.id] = ch
 
 		h := &defaultChannelHandler{ch, s}
 		ch.RegisterSyncRequestHandler(h)

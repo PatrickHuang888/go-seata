@@ -26,7 +26,7 @@ func NewClientWithConfig(tcAddr string, appId string, txGroup string, config *Ch
 	if err != nil {
 		return nil, errors.WithStack(err)
 	}
-	c := &Client{tcAddr: tcAddr, Channel: NewChannelWithConfig(conn.RemoteAddr().String(), conn, config)}
+	c := &Client{tcAddr: tcAddr, Channel: NewChannelWithConfig(conn, config)}
 	return c, nil
 }
 

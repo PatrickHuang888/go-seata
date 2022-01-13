@@ -8,16 +8,16 @@ import (
 	"time"
 )
 
+const (
+	DefaultGlobalTxTimeout = 60 * time.Second
+)
+
 type TM struct {
 	c *messaging.Client
 }
 
-func NewTm(svrAddr string, appId string, txGroup string) (*TM, error) {
-	c, err := messaging.NewClient(svrAddr, appId, txGroup)
-	if err != nil {
-		return nil, err
-	}
-	return &TM{c: c}, nil
+func NewTm(c *messaging.Client) *TM {
+	return &TM{c: c}
 }
 
 func (tm *TM) Register() error {
@@ -41,6 +41,7 @@ func (tm *TM) Register() error {
 	return nil
 }
 
+// Begin name from Annotation in Java
 func (tm *TM) Begin(name string, timeout time.Duration) (xid string, err error) {
 	req := v1.NewSyncRequestMessage()
 	req.Msg = v1.NewGlobalBeginRequest(name, int32(timeout.Milliseconds()))

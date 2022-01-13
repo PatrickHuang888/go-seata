@@ -85,11 +85,11 @@ func (h *testRmRspHandler) HandleMessage(msg v1.Message) error {
 	return nil
 }
 
-// should connect to real seata-server
+// start seata-server first
 func TestAsyncCallToJava(t *testing.T) {
 	wait := make(chan struct{})
 
-	c, err := NewClient("localhost:8091", "test-client", "test-txGroup")
+	c, err := NewClient(javaServer, "test-client", "test-txGroup")
 	if err != nil {
 		t.Fatal(err)
 	}

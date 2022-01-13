@@ -110,7 +110,11 @@ type Message struct {
 }
 
 func (m Message) String() string {
-	return fmt.Sprintf("Message id %d, tp %s, msg %s", m.Id, m.Tp.String(), m.Msg)
+	if m.Msg == nil {
+		return fmt.Sprintf("Message id %d, tp %s", m.Id, m.Tp.String())
+	} else {
+		return fmt.Sprintf("Message id %d, tp %s, msg %s", m.Id, m.Tp.String(), m.Msg)
+	}
 }
 
 func NewResourceRegisterRequest(appId string, txGroup string, resourceIds string) *pb.RegisterRMRequestProto {
@@ -300,8 +304,7 @@ func DecodePbMessage(buffer *bytes.Buffer) (msg proto.Message, err error) {
 }
 
 func nextRequestId() uint32 {
-	atomic.AddUint32(&requestId, 1)
-	return requestId
+	return atomic.AddUint32(&requestId, 1)
 }
 
 func ReadMessage(conn net.Conn) (msg *Message, err error) {
@@ -312,8 +315,6 @@ func ReadMessage(conn net.Conn) (msg *Message, err error) {
 		err = errors.WithStack(err)
 		return
 	}
-
-	fmt.Print("after read start\n")
 
 	// magic code
 	if buf[0] != MagicCodeBytes[0] {

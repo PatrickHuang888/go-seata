@@ -17,6 +17,14 @@ const (
 	DefaultEnableHeartbeat = true
 )
 
+var (
+	channelId atomic.Int64
+)
+
+func nextChannelId() int64 {
+	return channelId.Inc()
+}
+
 type ChannelConfig struct {
 	Timeout time.Duration
 
@@ -31,7 +39,7 @@ func DefaultConfig() *ChannelConfig {
 type Channel struct {
 	config *ChannelConfig
 
-	name string
+	id string
 
 	conn net.Conn
 
@@ -61,14 +69,13 @@ type Channel struct {
 	readErr chan error // errors from read
 }
 
-type CloseListener interface {
-	ChannelClose(string)
+func (c Channel) String() string {
+	return fmt.Sprintf("%s, %s -> %s", c.id, c.conn.LocalAddr().String(), c.conn.RemoteAddr().String())
 }
 
-type HandleMessage func(v1.Message) error
-
-func NewChannelWithConfig(name string, conn net.Conn, config *ChannelConfig) *Channel {
-	c := &Channel{name: name, conn: conn, closing: make(chan struct{}, 1), pendings: make(map[uint32]*operation),
+func NewChannelWithConfig(conn net.Conn, config *ChannelConfig) *Channel {
+	id := fmt.Sprintf("channel-%d", nextChannelId())
+	c := &Channel{id: id, conn: conn, closing: make(chan struct{}, 1), pendings: make(map[uint32]*operation),
 		readMsg: make(chan *readMsg), sending: make(chan *operation), sent: make(chan *operation), readReady: make(chan struct{}),
 		config: config, readErr: make(chan error)}
 
@@ -86,7 +93,7 @@ func NewChannelWithConfig(name string, conn net.Conn, config *ChannelConfig) *Ch
 }
 
 func NewChannel(conn net.Conn) *Channel {
-	return NewChannelWithConfig(conn.RemoteAddr().String(), conn, DefaultConfig())
+	return NewChannelWithConfig(conn, DefaultConfig())
 }
 
 func (c *Channel) ping() {
@@ -112,7 +119,7 @@ func (c *Channel) run() {
 	for {
 		select {
 		case <-c.closing:
-			fmt.Println("run closing")
+			logging.Debugf("channel [%s] closing", c.String())
 
 			if !c.doClosing.Load() {
 				c.doClosing.CAS(false, true)
@@ -121,20 +128,18 @@ func (c *Channel) run() {
 					c.pingStop <- struct{}{}
 				}
 
-				fmt.Println("conn close")
 				if err := c.conn.Close(); err != nil {
-					logging.Warningf("closing error %s", err)
+					logging.Warnf("closing error %s", err)
 				}
 
 				if c.closeListener != nil {
-					c.closeListener.ChannelClose(c.name)
+					c.closeListener.ChannelClose(c.id)
 				}
 			}
-			fmt.Println("run exit")
 			return
 
 		case err := <-c.readErr:
-			logging.Warningf("read error %s, close channel", err)
+			logging.Warnf("read error %s, close channel %s", err, c.String())
 
 			for id, op := range c.pendings {
 				delete(c.pendings, id)
@@ -145,9 +150,6 @@ func (c *Channel) run() {
 			c.Close()
 
 		case read := <-c.readMsg:
-
-			fmt.Printf("read message type %s\n", read.msg.Tp.String())
-
 			switch read.msg.Tp {
 			case v1.MsgTypeHeartbeatResponse:
 				// todo: heartbeat request/response handler
@@ -155,7 +157,7 @@ func (c *Channel) run() {
 			case v1.MsgTypeResponse:
 				pending := c.pendings[read.msg.Id]
 				if pending == nil {
-					logging.Warningf("read message req id %d not found!", read.msg.Id)
+					logging.Warnf("read message req id %d not found!", read.msg.Id)
 				}
 				delete(c.pendings, read.msg.Id)
 
@@ -195,7 +197,7 @@ func (c *Channel) run() {
 				}
 
 			default:
-				logging.Warningf("message type unknown %d", read.msg.Tp)
+				logging.Warnf("message type unknown %d", read.msg.Tp)
 			}
 
 		case sent := <-c.sent:
@@ -204,9 +206,7 @@ func (c *Channel) run() {
 			}
 
 		case sending := <-c.sending:
-			if sending != nil {
-				c.pendings[sending.id] = sending
-			}
+			c.pendings[sending.id] = sending
 		}
 	}
 
@@ -224,38 +224,22 @@ func (c *Channel) read() {
 	for {
 
 		if c.doClosing.Load() {
-			fmt.Println("read exit")
+			logging.Debugf("channel %s read exit", c.String())
 			// todo: handling msg already read ?
 			return
 		}
 
-		fmt.Printf("read ...\n")
-
 		if c.config.Timeout != 0 {
-			c.conn.SetReadDeadline(time.Now().Add(c.config.Timeout))
+			if err := c.conn.SetReadDeadline(time.Now().Add(c.config.Timeout)); err != nil {
+				logging.Warnf("channel id %s set read deadline error %s", c.id, err.Error())
+			}
 		}
 
 		msg, err := v1.ReadMessage(c.conn)
 
-		fmt.Printf("after read msg\n")
+		logging.Debugf("channel [%s] read message %s", c.String(), msg.String())
 
 		if err != nil {
-			/*if err == v1.NotSeataMessage || err == v1.MessageFormatError {
-				logging.Warning("read message error")
-				continue
-			} else {
-				if err.Error() == "EOF" {
-					logging.Debugf("read %s eof exit", c.name)
-				} else if strings.Contains(err.Error(), "use of closed network connection") {
-					logging.Debugf("remote close %s ", c.name)
-				} else {
-					logging.Warningf("read error %s, read exit", err)
-				}
-
-				// close directly?
-				c.Close()
-				return
-			}*/
 			c.readErr <- err
 			return
 		}
@@ -284,7 +268,7 @@ type operation struct {
 }
 
 func (op *operation) wait(ctx context.Context) (rsp v1.Message, err error) {
-	fmt.Printf("waiting on id %d\n", op.id)
+	logging.Debugf("waiting response on message id %d", op.id)
 
 	select {
 	case <-ctx.Done():
@@ -314,8 +298,7 @@ func (c *Channel) CallWithCtx(ctx context.Context, req v1.Message) (rsp v1.Messa
 
 	op := &operation{id: req.Id, rsp: make(chan *v1.Message, 1)}
 
-	logging.Debugf("call %d \n", req.Id)
-
+	logging.Debugf("channel [%s] sending request [%s]", c.String(), req.String())
 	if err = c.send(ctx, op, bs); err != nil {
 		return
 	}
@@ -337,8 +320,7 @@ func (c *Channel) Async(ctx context.Context, msg v1.Message) error {
 
 	op := &operation{id: msg.Id, rsp: make(chan *v1.Message, 1), reqTp: v1.MsgTypeRequestOneway}
 
-	fmt.Printf("async sending %d \n", msg.Id)
-
+	logging.Debugf("channel [%s] async sending request [%s]", c.String(), msg.String())
 	return c.send(ctx, op, data)
 }
 
@@ -348,50 +330,49 @@ func (c *Channel) SendResponse(ctx context.Context, msg *v1.Message) error {
 		return err
 	}
 
-	logging.Debugf("send response %d\n", msg.Id)
-
+	logging.Debugf("channel [%s] send response [%s]", c.String(), msg.String())
 	return c.send(ctx, nil, bs)
 }
 
 func (c *Channel) send(ctx context.Context, op *operation, data []byte) error {
-	select {
-	case c.sending <- op:
-
-		deadline, ok := ctx.Deadline()
-		if ok {
-			c.conn.SetWriteDeadline(deadline)
-		} else {
-			if c.config.Timeout != 0 {
-				deadline = time.Now().Add(c.config.Timeout)
-				c.conn.SetWriteDeadline(deadline)
+	deadline, ok := ctx.Deadline()
+	if ok {
+		if err := c.conn.SetWriteDeadline(deadline); err != nil {
+			logging.Warnf("channel id %s set write deadline error %s", c.id, err.Error())
+		}
+	} else {
+		if c.config.Timeout != 0 {
+			deadline = time.Now().Add(c.config.Timeout)
+			if err := c.conn.SetWriteDeadline(deadline); err != nil {
+				logging.Warnf("channel id %s set write deadline error %s", c.id, err.Error())
 			}
 		}
+	}
 
+	if op == nil {
+		return c.write(data, false)
+	}
+
+	select {
+	case c.sending <- op:
 		err := c.write(data, false)
-		if op != nil {
-			op.err = err
-			c.sent <- op
-		}
-		if err != nil {
-			return err
-		}
+		op.err = err
+		c.sent <- op
 
 		if c.pingTimer != nil {
 			c.pingTimer.Reset(c.config.WriteIdle)
 		}
+		return err
 
 	case <-ctx.Done():
-		fmt.Println("send done")
+		logging.Debug("send done")
 		// cancel?
 		err := ctx.Err()
 		return err
 	}
-	return nil
 }
 
 func (c *Channel) write(data []byte, retry bool) error {
-	fmt.Printf("write....\n")
-
 	n := 0
 	for n < len(data) {
 		nt, err := c.conn.Write(data)
@@ -400,8 +381,6 @@ func (c *Channel) write(data []byte, retry bool) error {
 		}
 		n += nt
 	}
-
-	fmt.Printf("write finished\n")
 	return nil
 }
 
@@ -411,4 +390,8 @@ func (c *Channel) Close() {
 
 type MessageHandler interface {
 	HandleMessage(msg v1.Message) error
+}
+
+type CloseListener interface {
+	ChannelClose(string)
 }
