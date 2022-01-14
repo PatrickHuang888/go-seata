@@ -3,6 +3,7 @@ package resmgr
 import (
 	"context"
 	"fmt"
+	"github.com/PatrickHuang888/go-seata/api"
 	"github.com/PatrickHuang888/go-seata/messaging"
 	"github.com/PatrickHuang888/go-seata/protocol/pb"
 	"github.com/PatrickHuang888/go-seata/txmgr"
@@ -49,10 +50,10 @@ func TestTCC(t *testing.T) {
 	}
 
 	actionCtx := make(map[string]interface{})
-	actionCtx[TccKeyXid] = xid
-	actionCtx[TccKeyBranchId] = branchId
-	ctx := context.WithValue(context.Background(), TccKey, actionCtx)
-	service.Action(ctx)
+	actionCtx[api.TccKeyXid] = xid
+	actionCtx[api.TccKeyBranchId] = branchId
+	ctx := context.WithValue(context.Background(), api.TccKey, actionCtx)
+	_ = service.Action(ctx)
 
 	status, err := tm.Commit(xid)
 	if err != nil {
@@ -62,7 +63,7 @@ func TestTCC(t *testing.T) {
 		t.Fail()
 	}
 
-	wait.Wait()
+	c.Close()
 }
 
 type testService struct {
@@ -74,8 +75,8 @@ func (s *testService) Action(ctx context.Context) error {
 }
 
 func (s *testService) Commit(ctx context.Context) error {
-	params := ctx.Value(TccKey).(map[string]interface{})
-	xid := params[TccKeyXid]
+	params := ctx.Value(api.TccKey).(map[string]interface{})
+	xid := params[api.TccKeyXid]
 
 	fmt.Printf("commit xid %s\n", xid)
 	return nil

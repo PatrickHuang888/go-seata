@@ -3,22 +3,17 @@ package resmgr
 import (
 	"context"
 	"fmt"
+	"github.com/PatrickHuang888/go-seata/api"
 	"github.com/PatrickHuang888/go-seata/logging"
 	"github.com/PatrickHuang888/go-seata/messaging"
 	v1 "github.com/PatrickHuang888/go-seata/messaging/v1"
 	"github.com/PatrickHuang888/go-seata/protocol/pb"
 )
 
-const (
-	TccKey         = "TccKey"
-	TccKeyBranchId = "BranchId"
-	TccKeyXid      = "XId"
-)
-
 type TCCResource struct {
 	resource
 
-	service TCC
+	service api.TCC
 }
 
 type TccRM struct {
@@ -82,10 +77,10 @@ func (rm *TccRM) handleBranchCommit(commit *pb.BranchCommitRequestProto) *pb.Bra
 	}
 
 	actionCtx := make(map[string]interface{})
-	actionCtx[TccKeyXid] = xid
-	actionCtx[TccKeyBranchId] = branchId
+	actionCtx[api.TccKeyXid] = xid
+	actionCtx[api.TccKeyBranchId] = branchId
 	// refactoring: ctx passing
-	ctx := context.WithValue(context.Background(), TccKey, actionCtx)
+	ctx := context.WithValue(context.Background(), api.TccKey, actionCtx)
 	if err := res.service.Commit(ctx); err != nil {
 		// ?
 		rsp.AbstractBranchEndResponse.BranchStatus = pb.BranchStatusProto_PhaseTwo_CommitFailed_Retryable
@@ -113,10 +108,10 @@ func (rm *TccRM) handleBranchRollback(rollback *pb.BranchRollbackRequestProto) *
 	}
 
 	actionCtx := make(map[string]interface{})
-	actionCtx[TccKeyXid] = xid
-	actionCtx[TccKeyBranchId] = branchId
+	actionCtx[api.TccKeyXid] = xid
+	actionCtx[api.TccKeyBranchId] = branchId
 	// refactoring: ctx passing
-	ctx := context.WithValue(context.Background(), TccKey, actionCtx)
+	ctx := context.WithValue(context.Background(), api.TccKey, actionCtx)
 	if err := res.service.Rollback(ctx); err != nil {
 		rsp.AbstractBranchEndResponse.AbstractTransactionResponse.AbstractResultMessage.Msg = err.Error()
 		return rsp
@@ -124,14 +119,4 @@ func (rm *TccRM) handleBranchRollback(rollback *pb.BranchRollbackRequestProto) *
 
 	rsp.AbstractBranchEndResponse.AbstractTransactionResponse.AbstractResultMessage.ResultCode = pb.ResultCodeProto_Success
 	return rsp
-}
-
-type TCC interface {
-	Action(context.Context) error
-	Commit(context.Context) error
-	Rollback(context.Context) error
-}
-
-func GetTCCContext(ctx context.Context) context.Context {
-	return context.WithValue(ctx, TccKey, make(map[string]interface{}))
 }

@@ -61,7 +61,7 @@ func Infof(template string, args ...interface{}) {
 	global.Infof(template, args...)
 }
 
-func Warnn(s string) {
+func Warn(s string) {
 	global.Warn(s)
 }
 
