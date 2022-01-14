@@ -33,7 +33,7 @@ func init() {
 		ErrorOutputPaths: []string{"stderr"},
 	}
 
-	logger, _ := config.ZapConfig.Build()
+	logger, _ := config.ZapConfig.Build(zap.AddCallerSkip(1))
 	global = logger.Sugar()
 }
 
