@@ -4,26 +4,43 @@ import (
 	"context"
 	"fmt"
 	"github.com/PatrickHuang888/go-seata/api"
+	"github.com/PatrickHuang888/go-seata/conf"
 	"github.com/PatrickHuang888/go-seata/logging"
 	"github.com/PatrickHuang888/go-seata/messaging"
 	v1 "github.com/PatrickHuang888/go-seata/messaging/v1"
 	"github.com/PatrickHuang888/go-seata/protocol/pb"
 )
 
-type TCCResource struct {
-	resource
+type resource struct {
+	id        string
+	txGroupId string
+	api.TCC
+}
 
-	service api.TCC
+func (r resource) BranchType() pb.BranchTypeProto {
+	return pb.BranchTypeProto_TCC
+}
+
+func (r resource) Id() string {
+	return r.id
+}
+
+func (r resource) GroupId() string {
+	return r.txGroupId
+}
+
+func NewTCCResource(config conf.Configuration, tcc api.TCC) api.TCCResource {
+	return resource{id: config.AppId, txGroupId: config.TxGroup, TCC: tcc}
 }
 
 type TccRM struct {
-	reses map[string]TCCResource
+	reses map[string]api.TCCResource
 	*RM
 }
 
 func NewTccRM(c *messaging.Client) *TccRM {
 	rm := &TccRM{
-		reses: make(map[string]TCCResource),
+		reses: make(map[string]api.TCCResource),
 		RM:    NewRM(c),
 	}
 	h := &tccMsgHandler{rm}
@@ -31,7 +48,7 @@ func NewTccRM(c *messaging.Client) *TccRM {
 	return rm
 }
 
-func (rm *TccRM) RegisterResource(res TCCResource) error {
+func (rm *TccRM) RegisterResource(res api.TCCResource) error {
 	rm.reses[res.Id()] = res
 	rm.RM.RegisterResource(pb.BranchTypeProto_TCC, res.Id())
 	return nil
@@ -81,7 +98,7 @@ func (rm *TccRM) handleBranchCommit(commit *pb.BranchCommitRequestProto) *pb.Bra
 	actionCtx[api.TccKeyBranchId] = branchId
 	// refactoring: ctx passing
 	ctx := context.WithValue(context.Background(), api.TccKey, actionCtx)
-	if err := res.service.Commit(ctx); err != nil {
+	if err := res.Commit(ctx); err != nil {
 		// ?
 		rsp.AbstractBranchEndResponse.BranchStatus = pb.BranchStatusProto_PhaseTwo_CommitFailed_Retryable
 		rsp.AbstractBranchEndResponse.AbstractTransactionResponse.AbstractResultMessage.Msg = err.Error()
@@ -112,7 +129,7 @@ func (rm *TccRM) handleBranchRollback(rollback *pb.BranchRollbackRequestProto) *
 	actionCtx[api.TccKeyBranchId] = branchId
 	// refactoring: ctx passing
 	ctx := context.WithValue(context.Background(), api.TccKey, actionCtx)
-	if err := res.service.Rollback(ctx); err != nil {
+	if err := res.Rollback(ctx); err != nil {
 		rsp.AbstractBranchEndResponse.AbstractTransactionResponse.AbstractResultMessage.Msg = err.Error()
 		return rsp
 	}

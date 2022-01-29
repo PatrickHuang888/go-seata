@@ -60,27 +60,3 @@ func (rm *RM) RegisterBranch(tp pb.BranchTypeProto, xid string, resourceId strin
 	}
 	return regRsp.BranchId, nil
 }
-
-type Resource interface {
-	Id() string
-	GroupId() string
-	BranchType() pb.BranchTypeProto
-}
-
-type resource struct {
-	id         string
-	groupdId   string
-	branchType pb.BranchTypeProto
-}
-
-func (r resource) Id() string {
-	return r.id
-}
-
-func (r resource) GroupId() string {
-	return r.groupdId
-}
-
-func (r resource) BranchType() pb.BranchTypeProto {
-	return r.branchType
-}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/PatrickHuang888/go-seata/api"
+	"github.com/PatrickHuang888/go-seata/conf"
 	"github.com/PatrickHuang888/go-seata/messaging"
 	"github.com/PatrickHuang888/go-seata/protocol/pb"
 	"github.com/PatrickHuang888/go-seata/txmgr"
@@ -32,8 +33,7 @@ func TestTCC(t *testing.T) {
 	rm := NewTccRM(c)
 
 	service := &testService{}
-	tccResource := TCCResource{resource: resource{id: "test-resource", groupdId: "test-group", branchType: pb.BranchTypeProto_TCC}}
-	tccResource.service = service
+	tccResource := NewTCCResource(conf.Config, service)
 
 	if err := rm.RegisterResource(tccResource); err != nil {
 		t.Fatalf("%+v", err)
@@ -53,7 +53,7 @@ func TestTCC(t *testing.T) {
 	actionCtx[api.TccKeyXid] = xid
 	actionCtx[api.TccKeyBranchId] = branchId
 	ctx := context.WithValue(context.Background(), api.TccKey, actionCtx)
-	_ = service.Action(ctx)
+	_ = service.Action(ctx, nil)
 
 	status, err := tm.Commit(xid)
 	if err != nil {
@@ -69,7 +69,7 @@ func TestTCC(t *testing.T) {
 type testService struct {
 }
 
-func (s *testService) Action(ctx context.Context) error {
+func (s *testService) Action(ctx context.Context, req interface{}) error {
 	fmt.Println("action")
 	return nil
 }
